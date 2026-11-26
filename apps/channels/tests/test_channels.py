@@ -9,7 +9,7 @@ from apps.channels.providers.mock import MockChannelProvider
 from apps.channels.providers.personal_unofficial import PersonalUnofficialProvider
 from apps.channels.providers.zalo_bot import ZaloBotProvider
 from apps.channels.providers.zalo_oa import ZaloOAProvider
-from common.exceptions import FeatureDisabledError, NotImplementedInPhase
+from common.exceptions import FeatureDisabledError
 from common.fields import decrypt_value, encrypt_value
 from common.models import AuditLog
 from tests.factories import ChannelFactory
@@ -174,20 +174,18 @@ def test_provider_registry(tenant_a):
 
 
 @override_settings(ZALO_PERSONAL_UNOFFICIAL_ENABLED=True, ZALO_CHANNEL_BACKEND="real")
-def test_personal_provider_is_still_a_phase_2b_stub(tenant_a):
+def test_personal_provider_registry_when_enabled(tenant_a):
     assert provider_class_for("zalo_personal") is PersonalUnofficialProvider
     assert isinstance(
         get_provider(ChannelFactory(tenant=tenant_a, channel_type="zalo_oa")), ZaloOAProvider
     )
-    for channel_type in ["zalo_personal"]:
-        provider = get_provider(ChannelFactory(tenant=tenant_a, channel_type=channel_type))
-        for call in (
-            lambda p=provider: p.verify_webhook({}, b""),
-            lambda p=provider: p.parse_webhook({}),
-            lambda p=provider: p.send_text("u", "hi"),
-        ):
-            with pytest.raises(NotImplementedInPhase):
-                call()
+    provider = get_provider(ChannelFactory(tenant=tenant_a, channel_type="zalo_personal"))
+    assert isinstance(provider, PersonalUnofficialProvider)
+    assert not provider.verify_webhook({}, b"")  # unsigned
+    assert provider.parse_webhook({}) == []
+    # Disconnected channel: the send guard refuses before any adapter call.
+    result = provider.send_text("u", "hi")
+    assert not result.ok and result.error.startswith("guard:")
 
 
 def test_mock_provider_roundtrip(tenant_a):

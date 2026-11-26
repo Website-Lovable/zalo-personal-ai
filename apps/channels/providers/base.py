@@ -42,6 +42,8 @@ class SendResult:
     message_id: str = ""
     error: str = ""
     error_code: int | None = None
+    #: Set when a send guard refused for now (rate limit, time window): retry after N s.
+    retry_after_seconds: int | None = None
 
 
 class ChannelProvider(ABC):

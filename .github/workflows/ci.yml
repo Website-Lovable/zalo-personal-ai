@@ -20,6 +20,21 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
 
+  sidecar:
+    # Personal Zalo sidecar (zca-js, pinned). Tests use a fake Zalo, no network.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sidecar/zalo-personal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npm audit --omit=dev --audit-level=high
+
   test:
     runs-on: ubuntu-latest
     services:

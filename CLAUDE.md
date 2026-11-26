@@ -28,6 +28,7 @@ LLM: Anthropic Claude API qua LLMProvider (có MockProvider). KHÔNG dùng OpenA
 - Test: `pytest -q` (coverage ≥ 80%)
 - Chạy dev: `docker compose up`
 - Lint: `ruff check . && ruff format --check .`
+- Test sidecar Zalo cá nhân: `cd sidecar/zalo-personal && npm ci --ignore-scripts && npm test`
 
 ## Báo cáo cuối mỗi lần chạy (bắt buộc, ngắn gọn)
 1. Tiến độ  2. Việc chưa hoàn thành (lý do, có cần xử lý ngay không)  3. Bước tiếp theo (nêu rõ việc + lý do để chủ dự án xác nhận; không hỏi chung chung)

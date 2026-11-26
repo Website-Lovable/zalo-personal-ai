@@ -1,0 +1,19 @@
+{
+  "name": "zalo-personal-sidecar",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Isolated sidecar for personal Zalo accounts (unofficial login via zca-js). Owner-approved 26/11/2026.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "zca-js": "2.4.0"
+  }
+}
