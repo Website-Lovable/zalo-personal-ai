@@ -3,7 +3,8 @@
 ``get_provider(channel)`` returns the provider for a channel. With
 ``ZALO_CHANNEL_BACKEND=mock`` (default in dev/test) every channel uses the in-memory mock, so
 nothing is sent to Zalo. ``zalo_personal`` is refused while its feature flag is off, even in
-mock mode.
+mock mode; when on, it always uses its own provider (send guard included), which talks to the
+fake adapter in mock mode.
 """
 
 from __future__ import annotations
@@ -38,6 +39,10 @@ def provider_class_for(channel_type: str) -> type[ChannelProvider]:
 
 def get_provider(channel) -> ChannelProvider:
     real_class = provider_class_for(channel.channel_type)  # also enforces feature flags
+    if channel.channel_type == "zalo_personal":
+        # Always the real provider so the send guard applies; in mock mode it uses the fake
+        # adapter (no Zalo, no sidecar).
+        return real_class(channel)
     if settings.ZALO_CHANNEL_BACKEND == "mock":
         return MockChannelProvider(channel)
     return real_class(channel)

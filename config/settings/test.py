@@ -17,3 +17,7 @@ ZALO_OA_APP_SECRET = "test-app-secret"  # noqa: S105
 ZALO_OA_WEBHOOK_SECRET = "test-oa-secret-key"  # noqa: S105
 ZALO_OA_OAUTH_REDIRECT_URI = "https://zalo-ai.test/oauth/zalo-oa/callback/"
 ZALO_OA_OAUTH_RESULT_URL = ""
+
+ZALO_PERSONAL_SIDECAR_URL = "http://zalo-personal.test"
+ZALO_PERSONAL_SIDECAR_SECRET = "test-sidecar-secret"  # noqa: S105
+ZALO_PERSONAL_EMERGENCY_STOP = False

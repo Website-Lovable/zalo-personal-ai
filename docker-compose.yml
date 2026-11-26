@@ -71,5 +71,21 @@ services:
       web:
         condition: service_healthy
 
+  # Personal Zalo sidecar (zca-js). Not started by default:
+  #   docker compose --profile personal up
+  zalo-personal:
+    profiles: ["personal"]
+    build: ./sidecar/zalo-personal
+    image: zalo-personal-sidecar:dev
+    environment:
+      ZALO_PERSONAL_DJANGO_URL: http://web:8000
+      PORT: "3100"
+    env_file:
+      - path: .env
+        required: false
+    read_only: true
+    tmpfs:
+      - /tmp
+
 volumes:
   pgdata:

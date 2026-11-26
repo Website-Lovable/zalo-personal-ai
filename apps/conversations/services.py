@@ -26,9 +26,10 @@ class ReplyNotAllowed(Exception):
 class SendFailed(RuntimeError):
     """The provider refused the message (error kept for the caller / audit)."""
 
-    def __init__(self, error: str, code: int | None = None):
+    def __init__(self, error: str, code: int | None = None, retry_after: int | None = None):
         super().__init__(error)
         self.code = code
+        self.retry_after = retry_after  # set when a send guard asks to try again later
 
 
 @dataclass
@@ -38,7 +39,6 @@ class DispatchResult:
     pending: PendingOwnerSend | None = None
 
 
-@transaction.atomic
 def dispatch_reply(
     conversation: Conversation,
     text: str,
@@ -52,20 +52,28 @@ def dispatch_reply(
         raise ReplyNotAllowed(f"Contact {contact.pk} may not receive a reply")
 
     if channel.mode == ChannelMode.ASSIST:
-        pending = PendingOwnerSend.objects.create(
-            tenant=conversation.tenant,
-            channel=channel,
-            conversation=conversation,
-            reply_to=reply_to,
-            draft_text=text,
-            data_origin=conversation.data_origin,
-        )
-        log_action("reply.queued_for_owner", obj=pending, tenant=conversation.tenant)
+        with transaction.atomic():
+            pending = PendingOwnerSend.objects.create(
+                tenant=conversation.tenant,
+                channel=channel,
+                conversation=conversation,
+                reply_to=reply_to,
+                draft_text=text,
+                data_origin=conversation.data_origin,
+            )
+            log_action("reply.queued_for_owner", obj=pending, tenant=conversation.tenant)
         return DispatchResult(sent=False, pending=pending)
 
+    # Not inside a transaction: provider side effects (e.g. a personal channel stopping itself
+    # after a restriction sign) must persist even though the send failed.
     result = get_provider(channel).send_text(contact.zalo_user_id, text)
     if not result.ok:
-        raise SendFailed(result.error, result.error_code)
+        raise SendFailed(result.error, result.error_code, result.retry_after_seconds)
+    with transaction.atomic():
+        return _record_sent(conversation, text, result, is_ai_generated)
+
+
+def _record_sent(conversation, text, result, is_ai_generated) -> DispatchResult:
     now = timezone.now()
     message = Message.objects.create(
         tenant=conversation.tenant,

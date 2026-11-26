@@ -14,6 +14,7 @@ from apps.ai_engine.views import (
     PreviewView,
     ResumeView,
 )
+from apps.channels.providers.personal_unofficial.api import PersonalChannelViewSet  # personal
 from apps.channels.views import ChannelViewSet
 from apps.channels.webhooks import (
     ZaloBotWebhookView,
@@ -37,6 +38,8 @@ router.register("permissions/rules", PermissionRuleViewSet, basename="permission
 router.register("approvals", ApprovalViewSet, basename="approval")
 router.register("memories", LongTermMemoryViewSet, basename="memory")
 router.register("ai/runs", AIReplyLogViewSet, basename="ai-run")
+# Personal Zalo (isolated, flag-gated). Remove with apps/channels/providers/personal_unofficial.
+router.register("personal-channels", PersonalChannelViewSet, basename="personal-channel")
 
 
 def healthz(request):
@@ -54,6 +57,7 @@ urlpatterns = [
         name="webhook-zalo-oa-channel",
     ),
     path("webhooks/zalo-bot/<uuid:key>/", ZaloBotWebhookView.as_view(), name="webhook-zalo-bot"),
+    path("", include("apps.channels.providers.personal_unofficial.urls")),  # personal Zalo
     path("oauth/zalo-oa/callback/", oa_oauth_callback, name="oauth-zalo-oa-callback"),
     path("zalo_verifier<str:code>.html", zalo_site_verification, name="zalo-site-verification"),
     path("api/auth/", include(auth_urlpatterns)),
