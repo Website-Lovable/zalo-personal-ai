@@ -174,9 +174,12 @@ def test_provider_registry(tenant_a):
 
 
 @override_settings(ZALO_PERSONAL_UNOFFICIAL_ENABLED=True, ZALO_CHANNEL_BACKEND="real")
-def test_real_providers_are_phase_stubs(tenant_a):
+def test_personal_provider_is_still_a_phase_2b_stub(tenant_a):
     assert provider_class_for("zalo_personal") is PersonalUnofficialProvider
-    for channel_type in ["zalo_oa", "zalo_bot", "zalo_personal"]:
+    assert isinstance(
+        get_provider(ChannelFactory(tenant=tenant_a, channel_type="zalo_oa")), ZaloOAProvider
+    )
+    for channel_type in ["zalo_personal"]:
         provider = get_provider(ChannelFactory(tenant=tenant_a, channel_type=channel_type))
         for call in (
             lambda p=provider: p.verify_webhook({}, b""),

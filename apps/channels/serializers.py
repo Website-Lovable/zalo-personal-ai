@@ -8,6 +8,7 @@ from .models import RISK_STATEMENT_TEXT, RISK_STATEMENT_VERSION, Channel, Channe
 class ChannelSerializer(TenantScopedSerializer):
     access_token = serializers.CharField(write_only=True, required=False, allow_blank=True)
     refresh_token = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    webhook_secret = serializers.CharField(write_only=True, required=False, allow_blank=True)
     has_access_token = serializers.SerializerMethodField()
     risk_acknowledged = serializers.BooleanField(read_only=True)
 
@@ -25,14 +26,25 @@ class ChannelSerializer(TenantScopedSerializer):
             "zalo_app_id",
             "access_token",
             "refresh_token",
+            "webhook_secret",
             "has_access_token",
             "token_expires_at",
             "risk_acknowledged",
+            "last_error",
+            "connected_at",
             "data_origin",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "status", "token_expires_at", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "status",
+            "token_expires_at",
+            "last_error",
+            "connected_at",
+            "created_at",
+            "updated_at",
+        ]
 
     def get_has_access_token(self, obj) -> bool:
         return bool(obj.access_token)
@@ -82,3 +94,23 @@ class RiskAcknowledgementSerializer(serializers.Serializer):
         if value != RISK_STATEMENT_VERSION:
             raise serializers.ValidationError("Phiên bản nội dung xác nhận không còn hiệu lực.")
         return value
+
+
+class OAuthStartSerializer(serializers.Serializer):
+    authorize_url = serializers.URLField(read_only=True)
+
+
+class BotConnectSerializer(serializers.Serializer):
+    bot_token = serializers.CharField(write_only=True, max_length=512)
+    delivery = serializers.ChoiceField(choices=["webhook", "polling"], default="webhook")
+
+
+class WebhookInfoSerializer(serializers.Serializer):
+    webhook_url = serializers.CharField(read_only=True)
+    oauth_redirect_uri = serializers.CharField(read_only=True)
+    delivery = serializers.CharField(read_only=True)
+    backend = serializers.CharField(read_only=True)
+
+
+class TaskQueuedSerializer(serializers.Serializer):
+    status = serializers.CharField(read_only=True)

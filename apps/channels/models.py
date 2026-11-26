@@ -1,3 +1,5 @@
+import uuid
+
 from django.core.exceptions import ValidationError
 from django.db import models
 
@@ -47,6 +49,13 @@ class Channel(TenantScopedModel):
     access_token = EncryptedTextField(blank=True)
     refresh_token = EncryptedTextField(blank=True)
     token_expires_at = models.DateTimeField(null=True, blank=True)
+    # Public, unguessable id used in webhook URLs (never the numeric pk).
+    webhook_key = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    # OA: per-channel "OA Secret Key" override (default: ZALO_OA_WEBHOOK_SECRET).
+    # Bot: the secret_token registered with setWebhook. Always encrypted.
+    webhook_secret = EncryptedTextField(blank=True)
+    last_error = models.CharField(max_length=500, blank=True)
+    connected_at = models.DateTimeField(null=True, blank=True)
     # Login session for zalo_personal (Phase 2b). Always encrypted.
     session_data = EncryptedTextField(blank=True)
 
@@ -101,3 +110,52 @@ class ChannelRiskAcknowledgement(TenantScopedModel):
 
     class Meta:
         ordering = ["-acknowledged_at"]
+
+
+class OAuthState(TenantScopedModel):
+    """One pending Zalo OA OAuth v4 authorization (PKCE). Single use, short lived."""
+
+    channel = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name="oauth_states")
+    state = models.CharField(max_length=64, unique=True)
+    code_verifier = EncryptedTextField()
+    created_by = models.ForeignKey(
+        "accounts.User", null=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class WebhookEvent(TenantScopedModel):
+    """Inbox of raw provider events: ACK fast, dedupe, then process async in Celery."""
+
+    class Status(models.TextChoices):
+        RECEIVED = "received", "Đã nhận"
+        PROCESSED = "processed", "Đã xử lý"
+        IGNORED = "ignored", "Bỏ qua"
+        FAILED = "failed", "Lỗi"
+
+    channel = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name="webhook_events")
+    source = models.CharField(max_length=20, default="webhook")  # webhook | polling
+    event_name = models.CharField(max_length=100, blank=True)
+    dedupe_key = models.CharField(max_length=255)
+    payload = models.JSONField(default=dict)
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.RECEIVED, db_index=True
+    )
+    attempts = models.PositiveIntegerField(default=0)
+    error = models.TextField(blank=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["channel", "dedupe_key"], name="uniq_webhook_event_per_channel"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.event_name} #{self.pk} ({self.status})"

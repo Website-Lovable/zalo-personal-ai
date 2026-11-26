@@ -131,8 +131,8 @@ SIMPLE_JWT = {
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Zalo Personal AI Assistant API",
-    "DESCRIPTION": "Multi-tenant API (Phase 1 foundation).",
-    "VERSION": "0.1.0",
+    "DESCRIPTION": "Multi-tenant API (Phase 2: Zalo OA + Zalo Bot).",
+    "VERSION": "0.2.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
     "ENUM_NAME_OVERRIDES": {
@@ -182,5 +182,44 @@ LOGGING = {
     "root": {"handlers": ["console"], "level": env("LOG_LEVEL", "INFO")},
 }
 
-# real | mock. Phase 1 has no real Zalo provider, so mock is the default everywhere.
+# --- Zalo channels (Phase 2) ---------------------------------------------------------
+# mock = outbound calls go to the in-memory MockChannelProvider (dev/test default);
+# real = official Zalo OA / Bot APIs. Webhooks are always verified with the real rules.
 ZALO_CHANNEL_BACKEND = env("ZALO_CHANNEL_BACKEND", "mock")
+if ZALO_CHANNEL_BACKEND not in {"mock", "real"}:
+    raise ImproperlyConfigured("ZALO_CHANNEL_BACKEND must be mock or real")
+# Public HTTPS base URL of this app (webhook + OAuth callback URLs are built from it).
+PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", "")
+ZALO_HTTP_TIMEOUT_SECONDS = int(env("ZALO_HTTP_TIMEOUT_SECONDS", "10"))
+# Zalo OA (one Zalo app at developers.zalo.me serves every tenant's OA)
+ZALO_OA_APP_ID = env("ZALO_OA_APP_ID", "")
+ZALO_OA_APP_SECRET = env("ZALO_OA_APP_SECRET", "")
+# "OA Secret Key" from the app's Webhook page (signs X-ZEvent-Signature).
+ZALO_OA_WEBHOOK_SECRET = env("ZALO_OA_WEBHOOK_SECRET", "")
+ZALO_OA_OAUTH_URL = env("ZALO_OA_OAUTH_URL", "https://oauth.zaloapp.com/v4/oa")
+ZALO_OA_API_URL = env("ZALO_OA_API_URL", "https://openapi.zalo.me")
+ZALO_OA_OAUTH_REDIRECT_URI = env("ZALO_OA_OAUTH_REDIRECT_URI", "")
+# Optional page to redirect to after OAuth (gets ?status=&message=&channel_id=).
+ZALO_OA_OAUTH_RESULT_URL = env("ZALO_OA_OAUTH_RESULT_URL", "")
+ZALO_OA_OAUTH_STATE_TTL_SECONDS = int(env("ZALO_OA_OAUTH_STATE_TTL_SECONDS", "600"))
+ZALO_OA_DEFAULT_TOKEN_TTL_SECONDS = int(env("ZALO_OA_DEFAULT_TOKEN_TTL_SECONDS", "90000"))
+ZALO_OA_TOKEN_REFRESH_MARGIN_SECONDS = int(env("ZALO_OA_TOKEN_REFRESH_MARGIN_SECONDS", "3600"))
+ZALO_OA_SYNC_PAGE_SIZE = int(env("ZALO_OA_SYNC_PAGE_SIZE", "50"))
+ZALO_OA_SYNC_MAX_CONTACTS = int(env("ZALO_OA_SYNC_MAX_CONTACTS", "5000"))
+# Domain verification file /zalo_verifier<code>.html (Zalo developer console).
+ZALO_SITE_VERIFICATION_CODE = env("ZALO_SITE_VERIFICATION_CODE", "")
+# Zalo Bot Platform
+ZALO_BOT_API_URL = env("ZALO_BOT_API_URL", "https://bot-api.zaloplatforms.com")
+ZALO_BOT_POLL_TIMEOUT_SECONDS = int(env("ZALO_BOT_POLL_TIMEOUT_SECONDS", "10"))
+ZALO_BOT_POLL_INTERVAL_SECONDS = int(env("ZALO_BOT_POLL_INTERVAL_SECONDS", "15"))
+
+CELERY_BEAT_SCHEDULE = {
+    "zalo-oa-refresh-tokens": {
+        "task": "apps.channels.tasks.refresh_expiring_oa_tokens",
+        "schedule": 600.0,
+    },
+    "zalo-bot-poll": {
+        "task": "apps.channels.tasks.poll_bot_channels",
+        "schedule": float(ZALO_BOT_POLL_INTERVAL_SECONDS),
+    },
+}

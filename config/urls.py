@@ -7,6 +7,12 @@ from rest_framework.routers import DefaultRouter
 from apps.accounts.urls import auth_urlpatterns
 from apps.ai_engine.views import CommunicationStyleView, OwnerProfileView
 from apps.channels.views import ChannelViewSet
+from apps.channels.webhooks import (
+    ZaloBotWebhookView,
+    ZaloOAWebhookView,
+    oa_oauth_callback,
+    zalo_site_verification,
+)
 from apps.contacts.views import ContactGroupViewSet, ContactViewSet
 from apps.conversations.views import ConversationViewSet, PendingOwnerSendViewSet
 from apps.dashboard.views import StatsView
@@ -29,6 +35,16 @@ def healthz(request):
 urlpatterns = [
     path("healthz/", healthz, name="healthz"),
     path("admin/", admin.site.urls),
+    # Called by Zalo (public; authenticity is checked per request)
+    path("webhooks/zalo-oa/", ZaloOAWebhookView.as_view(), name="webhook-zalo-oa"),
+    path(
+        "webhooks/zalo-oa/<uuid:key>/",
+        ZaloOAWebhookView.as_view(),
+        name="webhook-zalo-oa-channel",
+    ),
+    path("webhooks/zalo-bot/<uuid:key>/", ZaloBotWebhookView.as_view(), name="webhook-zalo-bot"),
+    path("oauth/zalo-oa/callback/", oa_oauth_callback, name="oauth-zalo-oa-callback"),
+    path("zalo_verifier<str:code>.html", zalo_site_verification, name="zalo-site-verification"),
     path("api/auth/", include(auth_urlpatterns)),
     path("api/ai/profile/", OwnerProfileView.as_view(), name="ai-profile"),
     path("api/ai/style/", CommunicationStyleView.as_view(), name="ai-style"),

@@ -20,10 +20,28 @@ class InboundMessage:
 
 
 @dataclass(frozen=True)
+class ChannelEvent:
+    """A provider event normalized for the core pipeline.
+
+    kind: ``message`` | ``follow`` | ``unfollow`` | ``ignore``.
+    ``outbound`` marks an echo of a message the account itself sent (e.g. staff replying from
+    the Zalo OA manager), so the conversation copy stays complete.
+    """
+
+    kind: str
+    event_name: str
+    dedupe_key: str
+    user_id: str = ""
+    message: InboundMessage | None = None
+    outbound: bool = False
+
+
+@dataclass(frozen=True)
 class SendResult:
     ok: bool
     message_id: str = ""
     error: str = ""
+    error_code: int | None = None
 
 
 class ChannelProvider(ABC):
@@ -35,8 +53,8 @@ class ChannelProvider(ABC):
         self.channel = channel
 
     @abstractmethod
-    def verify_webhook(self, headers: dict[str, str], body: bytes) -> bool:
-        """Return True if the inbound webhook is authentic."""
+    def verify_webhook(self, headers, body: bytes) -> bool:
+        """Return True if the inbound webhook is authentic. ``headers`` is case-insensitive."""
 
     @abstractmethod
     def parse_webhook(self, payload: dict[str, Any]) -> list[InboundMessage]:
@@ -45,3 +63,16 @@ class ChannelProvider(ABC):
     @abstractmethod
     def send_text(self, recipient_id: str, text: str) -> SendResult:
         """Send a text message to a contact."""
+
+    def parse_events(self, payload: dict[str, Any]) -> list[ChannelEvent]:
+        """Normalize every event in a payload. Default: one ``message`` event per message."""
+        return [
+            ChannelEvent(
+                kind="message",
+                event_name="message",
+                dedupe_key=msg.message_id,
+                user_id=msg.sender_id,
+                message=msg,
+            )
+            for msg in self.parse_webhook(payload)
+        ]

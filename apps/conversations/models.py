@@ -40,6 +40,9 @@ class Message(TenantScopedModel):
         FILE = "file", "Tệp"
         STICKER = "sticker", "Sticker"
         LOCATION = "location", "Vị trí"
+        AUDIO = "audio", "Âm thanh"
+        VIDEO = "video", "Video"
+        OTHER = "other", "Khác"
 
     conversation = models.ForeignKey(
         Conversation, on_delete=models.CASCADE, related_name="messages"
