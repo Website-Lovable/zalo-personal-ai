@@ -25,7 +25,8 @@ hình và danh sách thông tin cần đăng ký: [`docs/PHASE2_ZALO_SETUP.md`](
 | JWT auth, tenant middleware, RBAC owner/admin/viewer, AuditLog | Đăng nhập Zalo cá nhân (Phase 2b) |
 | CRUD API + OpenAPI (`/api/schema/`, `/api/docs/`) | |
 | Channel đa tài khoản, `ChannelProvider` + provider giả lập, hộp "Chờ chủ gửi" | Kết nối AIVA thật `live` (Phase 6, cần GĐ duyệt) |
-| `LLMProvider` + `MockProvider` + `AnthropicProvider` | Dashboard UI (Phase 4) |
+| `LLMProvider` + `MockProvider` + `AnthropicProvider` | |
+| Giao diện quản trị mobile-first tiếng Việt tại `/app/`, thống kê, thông báo trực tiếp (Phase 4) — xem [`docs/HUONG_DAN_SU_DUNG.md`](docs/HUONG_DAN_SU_DUNG.md) | |
 | Tích hợp AIVA sandbox (Phase 3.5): endpoint v1, outbox + webhook ký HMAC, retry, contract test — xem [`docs/integration/AIVA_INTEGRATION_V1.md`](docs/integration/AIVA_INTEGRATION_V1.md) | |
 
 ## Chạy nhanh
@@ -33,6 +34,7 @@ hình và danh sách thông tin cần đăng ký: [`docs/PHASE2_ZALO_SETUP.md`](
 ```bash
 docker compose up            # web :8000, postgres 16, redis, celery worker + beat
 docker compose exec web python manage.py seed_demo   # tenant demo (data_origin=demo)
+# Mở http://localhost:8000/ → giao diện quản trị (đăng nhập demo_owner, mật khẩu in ra ở bước trên)
 ```
 
 Không cần `.env` để chạy dev. Muốn đổi cấu hình: `cp .env.example .env`.

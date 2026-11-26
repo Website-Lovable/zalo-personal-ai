@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import include, path
+from django.views.generic import RedirectView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
@@ -24,7 +25,13 @@ from apps.channels.webhooks import (
 )
 from apps.contacts.views import ContactGroupViewSet, ContactViewSet
 from apps.conversations.views import ConversationViewSet, PendingOwnerSendViewSet
-from apps.dashboard.views import StatsView
+from apps.dashboard.views import (
+    ActivityView,
+    AnalyticsView,
+    NotificationTicketView,
+    StatsView,
+    app_shell,
+)
 from apps.integrations.aiva.views import ExchangeLogViewSet, IntegrationStatusView, OutboxViewSet
 from apps.memory.views import LongTermMemoryViewSet
 from apps.permissions.views import ApprovalViewSet, PermissionRuleViewSet
@@ -71,6 +78,12 @@ urlpatterns = [
     path("api/ai/resume/", ResumeView.as_view(), name="ai-resume"),
     path("api/ai/preview/", PreviewView.as_view(), name="ai-preview"),
     path("api/dashboard/stats/", StatsView.as_view(), name="dashboard-stats"),
+    path("api/dashboard/analytics/", AnalyticsView.as_view(), name="dashboard-analytics"),
+    path("api/dashboard/activity/", ActivityView.as_view(), name="dashboard-activity"),
+    path("api/notifications/ticket/", NotificationTicketView.as_view(), name="notification-ticket"),
+    # Mobile-first admin UI (Phase 4): one static page, client-side routes under /app/.
+    path("", RedirectView.as_view(url="/app/", permanent=False)),
+    path("app/", app_shell, name="app"),
     # AIVA -> Zalo AI (service token + HMAC; 503 while AIVA_INTEGRATION_MODE=off)
     path("api/integration/v1/", include("apps.integrations.aiva.urls")),
     path(

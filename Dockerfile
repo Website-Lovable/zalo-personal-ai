@@ -22,4 +22,6 @@ COPY --chown=app:app . .
 USER app
 
 EXPOSE 8000
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2"]
+# ASGI server: HTTP + WebSocket notifications (Phase 4). Static files are served by WhiteNoise.
+RUN DJANGO_SETTINGS_MODULE=config.settings.development python manage.py collectstatic --noinput -v0
+CMD ["daphne", "-b", "0.0.0.0", "-p", "8000", "config.asgi:application"]

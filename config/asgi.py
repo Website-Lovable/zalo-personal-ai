@@ -1,11 +1,19 @@
 import os
 
-from channels.routing import ProtocolTypeRouter
+from channels.routing import ProtocolTypeRouter, URLRouter
+from channels.security.websocket import AllowedHostsOriginValidator
 from django.core.asgi import get_asgi_application
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.development")
 
 django_asgi_app = get_asgi_application()
 
-# WebSocket routes are added in Phase 4 (real-time dashboard).
-application = ProtocolTypeRouter({"http": django_asgi_app})
+from apps.dashboard.routing import websocket_urlpatterns  # noqa: E402  (needs Django set up)
+
+application = ProtocolTypeRouter(
+    {
+        "http": django_asgi_app,
+        # Auth is a short-lived signed ticket checked by the consumer (see notifications.py).
+        "websocket": AllowedHostsOriginValidator(URLRouter(websocket_urlpatterns)),
+    }
+)
