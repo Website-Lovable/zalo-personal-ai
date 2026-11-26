@@ -57,3 +57,30 @@ class IntegrationAuditLog(models.Model):
 
     def __str__(self):
         return f"{self.direction} {self.event_type} ok={self.success}"
+
+
+class IntegrationInboundRequest(models.Model):
+    """Idempotency record for write requests from AIVA (``Idempotency-Key`` header).
+
+    A repeated key with the same body returns the stored response; with another body it is
+    refused (409). Together with the signed timestamp this stops replays of signed POSTs.
+    """
+
+    tenant = models.ForeignKey("accounts.Tenant", on_delete=models.CASCADE, related_name="+")
+    idempotency_key = models.CharField(max_length=100)
+    endpoint = models.CharField(max_length=100)
+    body_sha256 = models.CharField(max_length=64)
+    response_status = models.PositiveSmallIntegerField()
+    response_body = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "idempotency_key"], name="uniq_aiva_inbound_idempotency"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.endpoint} {self.idempotency_key}"

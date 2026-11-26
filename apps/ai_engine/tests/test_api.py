@@ -179,10 +179,23 @@ def test_assigned_staff_can_decide_and_filter_mine(tenant_a):
     assert staff.post(f"/api/approvals/{item.pk}/approve/").status_code == 200
 
 
-def test_aiva_outreach_approval_records_decision_only(client_a, tenant_a):
-    item = _approval(tenant_a, source="aiva_outreach")
+def test_aiva_outreach_approval_needs_consent_then_sends(client_a, tenant_a):
+    # Phase 3.5: approved Sales AI outreach is sent, but only to a consented contact.
+    conversation = _conversation(tenant_a)
+    item = ApprovalFactory(
+        tenant=tenant_a,
+        message=None,
+        contact=conversation.contact,
+        source="aiva_outreach",
+    )
+    response = client_a.post(f"/api/approvals/{item.pk}/approve/")
+    assert response.status_code == 400 and MockChannelProvider.sent == []
+    item.refresh_from_db()
+    assert item.status == "pending"
+    item.contact.set_consent("granted", "crs")
+    item.contact.save()
     assert client_a.post(f"/api/approvals/{item.pk}/approve/").json()["status"] == "approved"
-    assert MockChannelProvider.sent == []
+    assert MockChannelProvider.sent[-1][2] == item.proposed_response
 
 
 def test_approvals_tenant_isolation(client_b, tenant_a):

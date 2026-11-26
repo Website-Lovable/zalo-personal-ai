@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zalo-personal-ai/integration/aiva-v1-inbound.schema.json",
+  "title": "AIVA -> Zalo AI requests v1",
+  "description": "Bodies of the REST calls AIVA makes to /api/integration/v1/ (Kickoff 2.2). Each $defs entry is one endpoint.",
+  "$defs": {
+    "contacts_upsert": {
+      "description": "POST /api/integration/v1/contacts/upsert. CRS pushes a customer who consented (or withdrew). CRS is the source of truth: these fields overwrite the Zalo AI copy.",
+      "type": "object",
+      "required": ["data_origin", "crs_customer_id", "display_name", "consent_status", "consent_at"],
+      "additionalProperties": false,
+      "properties": {
+        "data_origin": {"enum": ["demo", "real"]},
+        "crs_customer_id": {"type": "string", "minLength": 1, "maxLength": 100},
+        "display_name": {"type": "string", "minLength": 1, "maxLength": 255},
+        "segment": {"enum": ["b2b", "b2c", "unknown"]},
+        "owner_staff_ref": {"type": "string", "maxLength": 100},
+        "consent_status": {"enum": ["granted", "withdrawn"]},
+        "consent_at": {"type": "string", "format": "date-time"},
+        "channel_ref": {"type": "string", "description": "Zalo AI channel id. Needed (with zalo_user_id) only to create a contact that Zalo AI does not know yet."},
+        "zalo_user_id": {"type": "string", "minLength": 1, "maxLength": 100}
+      },
+      "dependentRequired": {"zalo_user_id": ["channel_ref"]}
+    },
+    "outreach_draft": {
+      "description": "POST /api/integration/v1/outreach/draft. Sales AI's care message; goes to the approval queue of the staff in charge. Never sent automatically.",
+      "type": "object",
+      "required": ["data_origin", "draft_text"],
+      "additionalProperties": false,
+      "anyOf": [{"required": ["contact_ref"]}, {"required": ["crs_customer_id"]}],
+      "properties": {
+        "data_origin": {"enum": ["demo", "real"]},
+        "contact_ref": {"type": "string", "minLength": 1},
+        "crs_customer_id": {"type": "string", "minLength": 1, "maxLength": 100},
+        "draft_text": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "owner_staff_ref": {"type": "string", "maxLength": 100},
+        "purpose": {"type": "string", "maxLength": 200},
+        "expires_in_hours": {"type": "integer", "minimum": 1, "maximum": 168},
+        "request_ref": {"type": "string", "maxLength": 100, "description": "AIVA's own id for this request"}
+      }
+    },
+    "error": {
+      "type": "object",
+      "required": ["code", "detail"],
+      "properties": {
+        "code": {"type": "string"},
+        "detail": {}
+      }
+    },
+    "contacts_upsert_response": {
+      "type": "object",
+      "required": ["contact_ref", "created", "consent_status"],
+      "properties": {
+        "contact_ref": {"type": "string"},
+        "created": {"type": "boolean"},
+        "consent_status": {"enum": ["granted", "withdrawn"]},
+        "crs_customer_id": {"type": "string"}
+      }
+    },
+    "outreach_draft_response": {
+      "type": "object",
+      "required": ["approval_ref", "status", "owner_staff_ref", "expires_at"],
+      "properties": {
+        "approval_ref": {"type": "string"},
+        "status": {"const": "pending"},
+        "owner_staff_ref": {"type": "string"},
+        "expires_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "conversation_summary_response": {
+      "type": "object",
+      "required": ["conversation_ref", "contact_ref", "summary", "key_points", "detected_needs", "data_origin"],
+      "properties": {
+        "conversation_ref": {"type": "string"},
+        "contact_ref": {"type": "string"},
+        "crs_customer_id": {"type": "string"},
+        "summary": {"type": "string"},
+        "key_points": {"type": "array", "items": {"type": "string"}},
+        "detected_needs": {"type": "array", "items": {"type": "string"}},
+        "last_message_at": {"type": ["string", "null"]},
+        "summary_updated_at": {"type": ["string", "null"]},
+        "data_origin": {"enum": ["demo", "real"]}
+      }
+    },
+    "health_response": {
+      "type": "object",
+      "required": ["status", "mode", "schema_version", "tenant_ref"],
+      "properties": {
+        "status": {"const": "ok"},
+        "mode": {"enum": ["sandbox", "live"]},
+        "schema_version": {"const": "1.0"},
+        "tenant_ref": {"type": "string"},
+        "server_time": {"type": "string"}
+      }
+    }
+  }
+}

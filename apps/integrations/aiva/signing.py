@@ -59,3 +59,48 @@ def verify_signature(
     expected = compute_signature(secret, ts, body)
     if not hmac.compare_digest(expected, signature):
         raise SignatureError("Signature mismatch")
+
+
+# --- Requests from AIVA to Zalo AI ---------------------------------------------------
+#
+# A request also binds the method, the path (with query string) and the tenant header, so a
+# signed GET for one conversation cannot be replayed against another one or another tenant:
+#   message = f"{timestamp}.{METHOD}.{path}.{tenant_ref}." + raw_body
+
+
+def request_message(method: str, path: str, tenant_ref: str, body: bytes) -> bytes:
+    return f"{method.upper()}.{path}.{tenant_ref}.".encode() + (body or b"")
+
+
+def sign_request_headers(
+    secret: str,
+    method: str,
+    path: str,
+    tenant_ref: str,
+    body: bytes = b"",
+    *,
+    now: float | None = None,
+) -> dict[str, str]:
+    return sign_headers(secret, request_message(method, path, tenant_ref, body), now=now)
+
+
+def verify_request_signature(
+    secret: str,
+    method: str,
+    path: str,
+    tenant_ref: str,
+    body: bytes,
+    signature: str | None,
+    timestamp: str | None,
+    *,
+    tolerance_seconds: int = 300,
+    now: float | None = None,
+) -> None:
+    verify_signature(
+        secret,
+        request_message(method, path, tenant_ref, body),
+        signature,
+        timestamp,
+        tolerance_seconds=tolerance_seconds,
+        now=now,
+    )

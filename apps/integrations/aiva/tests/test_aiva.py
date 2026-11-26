@@ -20,7 +20,7 @@ from apps.integrations.aiva.signing import (
     sign_headers,
     verify_signature,
 )
-from common.exceptions import FeatureDisabledError, NotImplementedInPhase
+from common.exceptions import FeatureDisabledError
 from tests.factories import ChannelFactory, ContactFactory
 
 SECRET = "unit-test-secret"
@@ -163,12 +163,6 @@ def test_mode_off_uses_disabled_client():
     assert isinstance(client, DisabledAIVAClient) and client.health() is False
     with pytest.raises(FeatureDisabledError):
         client.send_event(_envelope())
-
-
-@override_settings(AIVA_INTEGRATION_MODE="sandbox")
-def test_http_client_not_available_before_phase_3_5():
-    with pytest.raises(NotImplementedInPhase):
-        get_aiva_client()
 
 
 def test_mock_client_contract():

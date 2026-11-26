@@ -357,7 +357,9 @@ def test_channel_config_can_only_tighten_limits(enabled, conversation):
 
 def test_time_window(enabled, conversation):
     with override_settings(ZALO_PERSONAL_SEND_WINDOW="07:30-21:30"):
-        night = timezone.localtime().replace(hour=23, minute=0)
+        # Tomorrow 23:00, so the check never sees "now" before the fixture's last send
+        # (the old "today 23:00" failed when the suite ran between 23:00 and midnight).
+        night = (timezone.localtime() + timedelta(days=1)).replace(hour=23, minute=0)
         decision = check_send(conversation.channel, conversation.contact, now=night)
     assert decision.reason == "outside_hours" and decision.retry_after_seconds > 0
     start, end = parse_window("20:00-02:00")

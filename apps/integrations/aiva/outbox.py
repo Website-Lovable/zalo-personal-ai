@@ -1,4 +1,7 @@
-"""Enqueue outbound AIVA events (transactional outbox). Delivery worker: Phase 3.5.
+"""Enqueue outbound AIVA events (transactional outbox). Delivery: ``delivery.py``.
+
+The row is written in the caller's transaction; delivery is scheduled on commit, so an
+event is only ever sent for data that was really saved.
 
 Guards (Kickoff 2.1 / 2.4):
 - mode off  -> nothing is enqueued, nothing leaves the app;
@@ -33,8 +36,16 @@ def _blocked(tenant, event_type: str, data_origin: str, reason: str) -> None:
 
 
 def enqueue_event(
-    tenant, event_type: str, payload: dict[str, Any], *, data_origin: str, contact=None
+    tenant,
+    event_type: str,
+    payload: dict[str, Any],
+    *,
+    data_origin: str,
+    contact=None,
+    idempotency_key: str = "",
 ) -> IntegrationOutbox | None:
+    """Queue one event. ``idempotency_key`` (e.g. ``lead.inbound:contact:12``) makes repeated
+    calls for the same fact a no-op that returns the existing row."""
     if not config.is_enabled():
         logger.debug("AIVA integration off; skip %s", event_type)
         return None
@@ -53,6 +64,11 @@ def enqueue_event(
         _blocked(tenant, event_type, data_origin, "tenant has no external_ref")
         return None
 
+    if idempotency_key:
+        existing = IntegrationOutbox.objects.filter(idempotency_key=idempotency_key).first()
+        if existing is not None:
+            return existing
+
     envelope = build_envelope(
         event_type=event_type,
         tenant_ref=tenant.external_ref,
@@ -66,7 +82,7 @@ def enqueue_event(
             event_type=event_type,
             payload=envelope,
             data_origin=data_origin,
-            idempotency_key=f"{event_type}:{envelope['event_id']}",
+            idempotency_key=idempotency_key or f"{event_type}:{envelope['event_id']}",
         )
         IntegrationAuditLog.objects.create(
             tenant=tenant,
@@ -78,4 +94,17 @@ def enqueue_event(
             success=True,
             detail="enqueued",
         )
+    _schedule_delivery(item.pk)
     return item
+
+
+def _schedule_delivery(item_id: int) -> None:
+    from .tasks import deliver_outbox_item
+
+    def _send():
+        try:
+            deliver_outbox_item.delay(item_id)
+        except Exception:  # noqa: BLE001 - broker down: the periodic sweep delivers it later
+            logger.warning("Could not schedule AIVA outbox item %s; beat will retry", item_id)
+
+    transaction.on_commit(_send)

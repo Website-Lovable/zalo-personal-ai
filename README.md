@@ -24,9 +24,9 @@ hình và danh sách thông tin cần đăng ký: [`docs/PHASE2_ZALO_SETUP.md`](
 | Models (Blueprint C2 + bổ sung Kickoff), migrations | |
 | JWT auth, tenant middleware, RBAC owner/admin/viewer, AuditLog | Đăng nhập Zalo cá nhân (Phase 2b) |
 | CRUD API + OpenAPI (`/api/schema/`, `/api/docs/`) | |
-| Channel đa tài khoản, `ChannelProvider` + provider giả lập, hộp "Chờ chủ gửi" | Kết nối AIVA sandbox (Phase 3.5) |
+| Channel đa tài khoản, `ChannelProvider` + provider giả lập, hộp "Chờ chủ gửi" | Kết nối AIVA thật `live` (Phase 6, cần GĐ duyệt) |
 | `LLMProvider` + `MockProvider` + `AnthropicProvider` | Dashboard UI (Phase 4) |
-| `apps/integrations/aiva/`: schema v1, HMAC, `MockAIVAClient`, outbox model | |
+| Tích hợp AIVA sandbox (Phase 3.5): endpoint v1, outbox + webhook ký HMAC, retry, contract test — xem [`docs/integration/AIVA_INTEGRATION_V1.md`](docs/integration/AIVA_INTEGRATION_V1.md) | |
 
 ## Chạy nhanh
 
@@ -51,7 +51,7 @@ python manage.py spectacular --file openapi.yaml --validate   # xuất OpenAPI s
 
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
-| `AIVA_INTEGRATION_MODE` | `off` | `off` không gọi ra ngoài; `sandbox` chỉ dữ liệu demo; `live` cần GĐ duyệt |
+| `AIVA_INTEGRATION_MODE` | `off` | `off` không gọi ra ngoài; `sandbox` chỉ dữ liệu demo; `live` cần GĐ duyệt (`AIVA_LIVE_APPROVED=true`, thiếu thì app không khởi động) |
 | `ZALO_PERSONAL_UNOFFICIAL_ENABLED` | `false` | Provider Zalo cá nhân bị chặn hoàn toàn |
 | `ZALO_CHANNEL_BACKEND` | `mock` | Tin gửi đi nằm trong bộ nhớ, không gọi Zalo; `real` mới gọi API Zalo |
 | `LLM_PROVIDER` | `mock` | Không gọi Claude API; `anthropic` + `ANTHROPIC_API_KEY` để bật Claude |
