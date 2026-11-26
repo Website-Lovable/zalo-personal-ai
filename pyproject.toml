@@ -1,0 +1,33 @@
+[project]
+name = "zalo-personal-ai"
+version = "0.1.0"
+description = "Zalo Personal AI Assistant - multi-tenant SaaS (Django)"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["**/migrations/*.py", ".venv", "docs", "*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "DJ", "S"]
+ignore = ["S101", "DJ001"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106", "S311", "S603", "S607"]
+"**/tests/**" = ["S105", "S106", "S311"]
+"config/settings/*.py" = ["F403", "F405"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.test"
+python_files = ["test_*.py"]
+addopts = "-q --cov --cov-report=term-missing:skip-covered --cov-fail-under=80"
+testpaths = ["apps", "common", "tests"]
+
+[tool.coverage.run]
+source = ["apps", "common", "config"]
+omit = ["*/migrations/*", "*/tests/*", "config/wsgi.py", "config/asgi.py", "config/settings/production.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

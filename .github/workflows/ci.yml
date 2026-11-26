@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feature/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "ruff>=0.11"
+      - run: ruff check .
+      - run: ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: zalo_ai
+          POSTGRES_USER: zalo
+          POSTGRES_PASSWORD: zalo
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U zalo -d zalo_ai"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://zalo:zalo@localhost:5432/zalo_ai
+      DJANGO_SETTINGS_MODULE: config.settings.test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - run: python manage.py makemigrations --check --dry-run
+      - run: pytest
+      - name: Export OpenAPI schema
+        run: python manage.py spectacular --file openapi.yaml --validate --fail-on-warn
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openapi-schema
+          path: openapi.yaml
