@@ -104,6 +104,7 @@ class AIReplyLog(TimestampMixin, DataOriginMixin):
     class Outcome(models.TextChoices):
         SENT = "sent", "Đã tự gửi"
         QUEUED_FOR_OWNER = "queued_for_owner", "Chờ chủ gửi"
+        RETRY_SCHEDULED = "retry_scheduled", "Chờ gửi lại"
         NEED_APPROVAL = "need_approval", "Chờ duyệt"
         ESCALATED = "escalated", "Chuyển người xử lý"
         NOT_REPLIED = "not_replied", "Không trả lời"

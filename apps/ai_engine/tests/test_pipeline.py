@@ -272,3 +272,84 @@ def test_task_wrappers(llm, inbound):
 
     assert process_inbound_message(inbound().pk) == Outcome.SENT
     assert process_inbound_message(999999) is None
+
+
+def _send_failed(error, retry_after=None):
+    from apps.conversations.services import SendFailed
+
+    exc = SendFailed(error)
+    exc.retry_after = retry_after
+    return exc
+
+
+def test_temporary_refusal_is_retried_then_sent(
+    llm, inbound, monkeypatch, django_capture_on_commit_callbacks
+):
+    real = pipeline.dispatch_reply
+    calls = []
+
+    def flaky(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise _send_failed("rate limited", retry_after=30)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(pipeline, "dispatch_reply", flaky)
+    message = inbound()
+    with django_capture_on_commit_callbacks(execute=True):
+        run = pipeline.process_inbound_message(message.pk)
+    run.refresh_from_db()
+    assert run.outcome == Outcome.SENT and "retry:1" in run.reasons and run.error == ""
+    assert len(MockChannelProvider.sent) == 1
+
+
+@pytest.mark.parametrize("error", ["guard:daily_cap", "restricted:blocked"])
+def test_guard_refusals_are_not_retried(llm, inbound, monkeypatch, error):
+    def refuse(*args, **kwargs):
+        raise _send_failed(error, retry_after=30)
+
+    monkeypatch.setattr(pipeline, "dispatch_reply", refuse)
+    run = pipeline.process_inbound_message(inbound().pk)
+    assert run.outcome == Outcome.FAILED and run.approval.send_error == error
+
+
+def test_retries_are_capped(llm, inbound, monkeypatch, django_capture_on_commit_callbacks):
+    def refuse(*args, **kwargs):
+        raise _send_failed("busy", retry_after=1)
+
+    monkeypatch.setattr(pipeline, "dispatch_reply", refuse)
+    message = inbound()
+    with django_capture_on_commit_callbacks(execute=True):
+        pipeline.process_inbound_message(message.pk)
+    run = AIReplyLog.objects.get(inbound_message=message)
+    assert run.outcome == Outcome.FAILED and "retry:2" in run.reasons
+    assert run.approval is not None
+
+
+def test_personal_channel_waits_human_delay(
+    llm, inbound, monkeypatch, django_capture_on_commit_callbacks
+):
+    from apps.ai_engine.tasks import retry_auto_reply
+    from apps.channels.models import Channel
+
+    monkeypatch.setattr(Channel, "is_personal", property(lambda self: True))
+    monkeypatch.setattr(pipeline, "_personal_human_delay", lambda text: 7)
+    delays = []
+    real_apply = retry_auto_reply.apply_async
+
+    def spy(args, countdown):
+        delays.append(countdown)
+        return real_apply(args, countdown=countdown)
+
+    monkeypatch.setattr(retry_auto_reply, "apply_async", spy)
+    message = inbound()
+    with django_capture_on_commit_callbacks(execute=True):
+        run = pipeline.process_inbound_message(message.pk)
+    assert run.reasons[-1] == "human_delay" and delays == [7]
+    run.refresh_from_db()
+    assert run.outcome == Outcome.SENT
+    assert retry_auto_reply(run.pk, 0) is None  # already sent: nothing to do
+
+
+def test_personal_human_delay_without_phase_2b():
+    assert pipeline._personal_human_delay("Dạ") >= 0

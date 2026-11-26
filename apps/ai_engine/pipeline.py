@@ -250,35 +250,98 @@ def _run(run: AIReplyLog, message: Message) -> AIReplyLog:
         _schedule_memory_update(conversation)
         return _finish(run, outcome, decision, approval=approval, **common)
 
+    _finish(run, Outcome.SKIPPED, decision, **common)  # persist draft before sending
+    return send_auto_reply(run)
+
+
+#: Send-guard refusals worth a later retry (e.g. personal channel rate limit / time window)
+#: carry ``SendFailed.retry_after``. These prefixes mean "stop", never retry.
+_NO_RETRY_PREFIXES = ("guard:", "restricted:")
+MAX_SEND_ATTEMPTS = 3
+
+
+def _personal_human_delay(text: str) -> int:
+    """Human-like typing delay for personal Zalo (Phase 2b limits, Kickoff 3 #3)."""
+    try:
+        from apps.channels.providers.personal_unofficial.limits import human_delay_seconds
+    except ImportError:  # Phase 2b not installed
+        return 0
+    return max(0, int(human_delay_seconds(text)))
+
+
+def _schedule_send(run: AIReplyLog, attempt: int, countdown: int):
+    from .tasks import retry_auto_reply
+
+    transaction.on_commit(
+        lambda: retry_auto_reply.apply_async((run.pk, attempt), countdown=countdown)
+    )
+
+
+def send_auto_reply(run: AIReplyLog, attempt: int = 0, *, delayed: bool = False) -> AIReplyLog:
+    """Send the draft of an ``auto_reply`` run. Re-checks every switch first.
+
+    Personal Zalo channels first wait a human-like delay for the reply text. A refusal that
+    says "try again in N seconds" (``SendFailed.retry_after``) is retried up to
+    ``MAX_SEND_ATTEMPTS`` times; anything else becomes a draft for a person.
+    """
+    conversation = Conversation.objects.select_related("tenant", "channel", "contact").get(
+        pk=run.conversation_id
+    )
+    message = run.inbound_message
+    decision = checker.Decision(action=run.decision or checker.AUTO, reasons=list(run.reasons))
+    decision.rule = run.matched_rule
+    if not delayed and conversation.channel.is_personal:
+        wait = _personal_human_delay(run.draft)
+        if wait:
+            decision.reasons.append("human_delay")
+            _finish(run, Outcome.RETRY_SCHEDULED, decision)
+            _schedule_send(run, attempt, wait)
+            return run
     # Last check right before sending: the emergency stop or a takeover may have happened
-    # while the model was thinking.
-    conversation.refresh_from_db()
+    # while the model was thinking or while a retry was waiting.
     late = checker.skip_reason(conversation)
     if late:
         decision.reasons.append(f"late:{late}")
-        return _finish(run, Outcome.SKIPPED, decision, **common)
+        return _finish(run, Outcome.SKIPPED, decision)
     try:
-        sent = dispatch_reply(conversation, draft, reply_to=message, is_ai_generated=True)
+        sent = dispatch_reply(conversation, run.draft, reply_to=message, is_ai_generated=True)
     except ReplyNotAllowed:
         decision.reasons.append("contact_not_allowed")
-        return _finish(run, Outcome.NOT_REPLIED, decision, **common)
+        return _finish(run, Outcome.NOT_REPLIED, decision)
     except (SendFailed, FeatureDisabledError) as exc:
+        error = str(exc)[:500]
+        retry_after = getattr(exc, "retry_after", None)
+        if (
+            retry_after
+            and attempt + 1 < MAX_SEND_ATTEMPTS
+            and not error.startswith(_NO_RETRY_PREFIXES)
+        ):
+            from .tasks import retry_auto_reply
+
+            decision.reasons.append(f"retry:{attempt + 1}")
+            _finish(run, Outcome.RETRY_SCHEDULED, decision, error=error)
+            transaction.on_commit(
+                lambda: retry_auto_reply.apply_async(
+                    (run.pk, attempt + 1), countdown=int(retry_after)
+                )
+            )
+            return run
         decision.tighten(checker.APPROVAL, "send_failed")
-        approval = _create_approval(conversation, message, draft, confidence, decision)
-        approval.send_error = str(exc)[:500]
-        approval.save(update_fields=["send_error", "updated_at"])
-        return _finish(
-            run, Outcome.FAILED, decision, error=str(exc)[:500], approval=approval, **common
+        approval = _create_approval(
+            conversation, message, run.draft, run.confidence or 0.0, decision
         )
+        approval.send_error = error
+        approval.save(update_fields=["send_error", "updated_at"])
+        return _finish(run, Outcome.FAILED, decision, error=error, approval=approval)
     if sent.message is not None:
-        Message.objects.filter(pk=sent.message.pk).update(ai_confidence=confidence)
-        sent.message.ai_confidence = confidence
+        Message.objects.filter(pk=sent.message.pk).update(ai_confidence=run.confidence)
+        sent.message.ai_confidence = run.confidence
         log_action("ai.auto_reply_sent", obj=sent.message, changes={"reasons": decision.reasons})
         outcome = Outcome.SENT
     else:
         outcome = Outcome.QUEUED_FOR_OWNER
     _schedule_memory_update(conversation)
-    return _finish(run, outcome, decision, output_message=sent.message, **common)
+    return _finish(run, outcome, decision, output_message=sent.message, error="")
 
 
 def _schedule_memory_update(conversation: Conversation):

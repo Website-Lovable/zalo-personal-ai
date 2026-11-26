@@ -9,6 +9,7 @@ from apps.accounts.rbac import role_at_least
 from apps.conversations.models import Message
 from apps.conversations.services import ReplyNotAllowed, SendFailed, dispatch_reply
 from common.audit import log_action
+from common.exceptions import FeatureDisabledError
 
 from .models import ApprovalQueue
 
@@ -67,14 +68,29 @@ def reject(item: ApprovalQueue, user, *, reason: str = "", request=None) -> Appr
     return item
 
 
+def _back_to_pending(item: ApprovalQueue, error: str = ""):
+    ApprovalQueue.objects.filter(pk=item.pk).update(
+        status=ApprovalQueue.Status.PENDING,
+        modified_response="",
+        reviewed_by=None,
+        reviewed_at=None,
+        send_error=error,
+        updated_at=timezone.now(),
+    )
+    item.refresh_from_db()
+
+
 def approve(
     item: ApprovalQueue, user, *, modified: str = "", reason: str = "", request=None
 ) -> ApprovalQueue:
     """Approve (optionally edited) and send through the channel.
 
-    Inbound-reply drafts are sent at once (assist channels: to 'Chờ chủ gửi'). If Zalo
-    refuses, the item goes back to pending with ``send_error`` so it can be retried.
-    Outreach drafts from AIVA only record the decision (sending is Phase 3.5).
+    The decision is committed first (so two reviewers cannot send twice), then the message
+    is sent outside any transaction: the channel's own state (e.g. a personal channel's
+    auto-stop after a refused send) must survive a failed send. If the send fails, the item
+    goes back to pending with ``send_error`` so it can be retried.
+    Inbound-reply drafts go out at once (assist channels: to 'Chờ chủ gửi'). Outreach drafts
+    from AIVA only record the decision (sending is Phase 3.5).
     """
     _expire_if_overdue(item)
     with transaction.atomic():
@@ -89,35 +105,31 @@ def approve(
         item.send_error = ""
         item.save()
 
-        if item.source == ApprovalQueue.Source.INBOUND_REPLY and item.conversation_id:
-            try:
-                result = dispatch_reply(
-                    item.conversation, text, reply_to=item.message, is_ai_generated=True
-                )
-            except ReplyNotAllowed as exc:
-                raise ApprovalError("Liên hệ này không được phép nhận tin.") from exc
-            except SendFailed as exc:
-                transaction.set_rollback(True)
-                error = str(exc)[:500]
-                failed = True
-            else:
-                failed = False
-                if result.message is not None:
-                    Message.objects.filter(pk=result.message.pk).update(
-                        was_approved=True, approved_by=user, ai_confidence=item.ai_confidence
-                    )
-                    item.sent_message = result.message
-                    item.save(update_fields=["sent_message", "updated_at"])
-        else:
-            failed = False
-
-    if failed:
-        ApprovalQueue.objects.filter(pk=item.pk).update(send_error=error)
-        item.refresh_from_db()
-        log_action(
-            "approval.send_failed", obj=item, user=user, request=request, changes={"error": error}
-        )
-        raise ApprovalError(f"Zalo không nhận tin: {error}", status=502)
+    if item.source == ApprovalQueue.Source.INBOUND_REPLY and item.conversation_id:
+        try:
+            result = dispatch_reply(
+                item.conversation, text, reply_to=item.message, is_ai_generated=True
+            )
+        except ReplyNotAllowed as exc:
+            _back_to_pending(item)
+            raise ApprovalError("Liên hệ này không được phép nhận tin.") from exc
+        except (SendFailed, FeatureDisabledError) as exc:
+            error = str(exc)[:500]
+            _back_to_pending(item, error)
+            log_action(
+                "approval.send_failed",
+                obj=item,
+                user=user,
+                request=request,
+                changes={"error": error, "retry_after": getattr(exc, "retry_after", None)},
+            )
+            raise ApprovalError(f"Zalo không nhận tin: {error}", status=502) from exc
+        if result.message is not None:
+            Message.objects.filter(pk=result.message.pk).update(
+                was_approved=True, approved_by=user, ai_confidence=item.ai_confidence
+            )
+            item.sent_message = result.message
+            item.save(update_fields=["sent_message", "updated_at"])
     log_action(
         f"approval.{item.status}",
         obj=item,

@@ -14,6 +14,17 @@ def process_inbound_message(message_id: int):
 
 
 @shared_task(ignore_result=True)
+def retry_auto_reply(run_id: int, attempt: int):
+    from .models import AIReplyLog
+    from .pipeline import send_auto_reply
+
+    run = AIReplyLog.objects.filter(pk=run_id, outcome=AIReplyLog.Outcome.RETRY_SCHEDULED).first()
+    if run is None:
+        return None
+    return send_auto_reply(run, attempt, delayed=True).outcome
+
+
+@shared_task(ignore_result=True)
 def update_conversation_memory(conversation_id: int):
     from apps.conversations.models import Conversation
     from apps.memory.services import update_memory
