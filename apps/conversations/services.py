@@ -23,6 +23,14 @@ class ReplyNotAllowed(Exception):
     pass
 
 
+class SendFailed(RuntimeError):
+    """The provider refused the message (error kept for the caller / audit)."""
+
+    def __init__(self, error: str, code: int | None = None):
+        super().__init__(error)
+        self.code = code
+
+
 @dataclass
 class DispatchResult:
     sent: bool
@@ -57,7 +65,7 @@ def dispatch_reply(
 
     result = get_provider(channel).send_text(contact.zalo_user_id, text)
     if not result.ok:
-        raise RuntimeError(f"Provider send failed: {result.error}")
+        raise SendFailed(result.error, result.error_code)
     now = timezone.now()
     message = Message.objects.create(
         tenant=conversation.tenant,

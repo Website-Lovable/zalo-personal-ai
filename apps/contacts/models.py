@@ -69,6 +69,9 @@ class Contact(TenantScopedModel):
     owner_staff_ref = models.CharField(max_length=100, blank=True)
     # True once the contact has messaged us first (personal channel may only reply then).
     has_messaged_first = models.BooleanField(default=False)
+    # Zalo OA follower state (null = unknown, e.g. Bot or never synced).
+    is_follower = models.BooleanField(null=True, blank=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["display_name"]

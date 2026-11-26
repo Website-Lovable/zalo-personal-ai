@@ -10,7 +10,13 @@ from common.audit import log_action
 from common.tenancy import TenantScopedViewSet, get_request_tenant
 
 from .models import Conversation, Message, PendingOwnerSend
-from .serializers import ConversationSerializer, MessageSerializer, PendingOwnerSendSerializer
+from .serializers import (
+    ConversationSerializer,
+    MessageSerializer,
+    PendingOwnerSendSerializer,
+    ReplySerializer,
+)
+from .services import ReplyNotAllowed, SendFailed, dispatch_reply
 
 
 class ConversationViewSet(TenantScopedViewSet):
@@ -33,6 +39,33 @@ class ConversationViewSet(TenantScopedViewSet):
         qs = Message.objects.for_tenant(self.get_tenant()).filter(conversation=conversation)
         page = self.paginate_queryset(qs)
         return self.get_paginated_response(MessageSerializer(page, many=True).data)
+
+    @extend_schema(request=ReplySerializer, responses=MessageSerializer)
+    @action(detail=True, methods=["post"])
+    def reply(self, request, pk=None):
+        """Staff reply written by a person (not AI), sent through the channel provider."""
+        conversation = self.get_object()
+        serializer = ReplySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = dispatch_reply(
+                conversation, serializer.validated_data["text"], is_ai_generated=False
+            )
+        except ReplyNotAllowed as exc:
+            raise ValidationError({"detail": "Liên hệ này không được phép nhận tin."}) from exc
+        except SendFailed as exc:
+            log_action(
+                "message.send_failed",
+                obj=conversation,
+                changes={"error_code": exc.code, "error": str(exc)[:200]},
+                request=request,
+            )
+            return Response({"detail": f"Zalo không nhận tin: {exc}"}, status=502)
+        if result.pending is not None:
+            log_action("message.reply_queued", obj=result.pending, request=request)
+            return Response({"detail": "Đã đưa vào hộp 'Chờ chủ gửi'."}, status=202)
+        log_action("message.sent_by_staff", obj=result.message, request=request)
+        return Response(MessageSerializer(result.message).data, status=201)
 
 
 class PendingOwnerSendViewSet(

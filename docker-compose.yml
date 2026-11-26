@@ -63,5 +63,13 @@ services:
       web:
         condition: service_healthy
 
+  beat:
+    <<: *app
+    # Periodic jobs: Zalo OA token refresh, Zalo Bot polling.
+    command: celery -A config beat --loglevel=info --schedule /tmp/celerybeat-schedule
+    depends_on:
+      web:
+        condition: service_healthy
+
 volumes:
   pgdata:

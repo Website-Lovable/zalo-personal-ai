@@ -70,3 +70,7 @@ class PendingOwnerSendSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = fields
+
+
+class ReplySerializer(serializers.Serializer):
+    text = serializers.CharField(max_length=2000)
