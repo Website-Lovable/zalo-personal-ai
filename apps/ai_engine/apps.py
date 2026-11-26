@@ -5,3 +5,6 @@ class AiEngineConfig(AppConfig):
     name = "apps.ai_engine"
     label = "ai_engine"
     verbose_name = "AI engine"
+
+    def ready(self):
+        from . import signals  # noqa: F401

@@ -35,6 +35,8 @@ class User(AbstractUser):
     )
     role = models.CharField(max_length=10, choices=Role.choices, default=Role.VIEWER)
     phone = models.CharField(max_length=20, blank=True)
+    # Staff id in CRS. Approvals whose owner_staff_ref matches belong to this user.
+    staff_ref = models.CharField(max_length=100, blank=True, db_index=True)
 
     def has_role(self, minimum: str) -> bool:
         from .rbac import role_at_least

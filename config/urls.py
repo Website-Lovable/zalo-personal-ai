@@ -5,7 +5,15 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
 from apps.accounts.urls import auth_urlpatterns
-from apps.ai_engine.views import CommunicationStyleView, OwnerProfileView
+from apps.ai_engine.views import (
+    AIControlView,
+    AIReplyLogViewSet,
+    CommunicationStyleView,
+    EmergencyStopView,
+    OwnerProfileView,
+    PreviewView,
+    ResumeView,
+)
 from apps.channels.providers.personal_unofficial.api import PersonalChannelViewSet  # personal
 from apps.channels.views import ChannelViewSet
 from apps.channels.webhooks import (
@@ -17,6 +25,7 @@ from apps.channels.webhooks import (
 from apps.contacts.views import ContactGroupViewSet, ContactViewSet
 from apps.conversations.views import ConversationViewSet, PendingOwnerSendViewSet
 from apps.dashboard.views import StatsView
+from apps.memory.views import LongTermMemoryViewSet
 from apps.permissions.views import ApprovalViewSet, PermissionRuleViewSet
 
 router = DefaultRouter()
@@ -27,6 +36,8 @@ router.register("conversations", ConversationViewSet, basename="conversation")
 router.register("owner-sends", PendingOwnerSendViewSet, basename="owner-send")
 router.register("permissions/rules", PermissionRuleViewSet, basename="permission-rule")
 router.register("approvals", ApprovalViewSet, basename="approval")
+router.register("memories", LongTermMemoryViewSet, basename="memory")
+router.register("ai/runs", AIReplyLogViewSet, basename="ai-run")
 # Personal Zalo (isolated, flag-gated). Remove with apps/channels/providers/personal_unofficial.
 router.register("personal-channels", PersonalChannelViewSet, basename="personal-channel")
 
@@ -52,6 +63,10 @@ urlpatterns = [
     path("api/auth/", include(auth_urlpatterns)),
     path("api/ai/profile/", OwnerProfileView.as_view(), name="ai-profile"),
     path("api/ai/style/", CommunicationStyleView.as_view(), name="ai-style"),
+    path("api/ai/control/", AIControlView.as_view(), name="ai-control"),
+    path("api/ai/emergency-stop/", EmergencyStopView.as_view(), name="ai-emergency-stop"),
+    path("api/ai/resume/", ResumeView.as_view(), name="ai-resume"),
+    path("api/ai/preview/", PreviewView.as_view(), name="ai-preview"),
     path("api/dashboard/stats/", StatsView.as_view(), name="dashboard-stats"),
     path("api/", include("apps.accounts.urls")),
     path("api/", include(router.urls)),

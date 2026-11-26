@@ -1,7 +1,7 @@
 """Inbound pipeline steps [2]-[3] of Blueprint B4: dedupe, identify contact, store message.
 
-Steps [4]-[11] (permission check, memory, LLM, approval, send) are Phase 3. They hook in
-through the ``inbound_message_received`` signal so this module does not change then.
+Steps [4]-[11] (permission check, memory, LLM, approval, send) live in
+``apps.ai_engine.pipeline`` and hook in through the ``inbound_message_received`` signal.
 """
 
 from __future__ import annotations
@@ -123,7 +123,12 @@ def _store_message(channel, event: ChannelEvent) -> bool:
     if not conversation.last_message_at or sent_at > conversation.last_message_at:
         conversation.last_message_at = sent_at
         conversation.save(update_fields=["last_message_at", "updated_at"])
-    if not event.outbound:
+    if event.outbound:
+        # The owner replied directly in Zalo (not through this app): stay quiet for a while.
+        from apps.ai_engine.control import auto_take_over
+
+        auto_take_over(conversation)
+    else:
         inbound_message_received.send(
             sender=Message, message=message, conversation=conversation, channel=channel
         )

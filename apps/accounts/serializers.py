@@ -46,6 +46,7 @@ class UserSerializer(serializers.ModelSerializer):
             "first_name",
             "last_name",
             "phone",
+            "staff_ref",
             "role",
             "is_active",
             "password",

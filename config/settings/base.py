@@ -131,7 +131,7 @@ SIMPLE_JWT = {
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Zalo Personal AI Assistant API",
-    "DESCRIPTION": "Multi-tenant API (Phase 2: Zalo OA + Zalo Bot).",
+    "DESCRIPTION": "Multi-tenant API (Phase 3: AI engine).",
     "VERSION": "0.2.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
@@ -158,6 +158,32 @@ LLM_PROVIDER = env("LLM_PROVIDER", "mock")
 ANTHROPIC_API_KEY = env("ANTHROPIC_API_KEY", "")
 LLM_MODEL_MAIN = env("LLM_MODEL_MAIN", "claude-sonnet-5-5")
 LLM_MODEL_FAST = env("LLM_MODEL_FAST", "claude-haiku-5-5")
+LLM_TIMEOUT_SECONDS = int(env("LLM_TIMEOUT_SECONDS", "60"))
+# Re-run a request declined by Anthropic's safety classifiers on a fallback model.
+LLM_REFUSAL_FALLBACK = env_bool("LLM_REFUSAL_FALLBACK", True)
+LLM_EFFORT_REPLY = env("LLM_EFFORT_REPLY", "medium")
+LLM_EFFORT_FAST = env("LLM_EFFORT_FAST", "low")
+LLM_REPLY_MAX_TOKENS = int(env("LLM_REPLY_MAX_TOKENS", "2048"))
+
+# --- AI engine (Phase 3) --------------------------------------------------------------
+# Platform-wide switch. false = no AI drafts or replies for any tenant (inbound still stored).
+AI_ENGINE_ENABLED = env_bool("AI_ENGINE_ENABLED", True)
+# Below this self-reported confidence an auto reply becomes a draft for approval.
+AI_MIN_AUTO_CONFIDENCE = float(env("AI_MIN_AUTO_CONFIDENCE", "0.7"))
+# Auto replies allowed per channel per hour / per conversation per 10 minutes.
+AI_MAX_AUTO_REPLIES_PER_CHANNEL_HOUR = int(env("AI_MAX_AUTO_REPLIES_PER_CHANNEL_HOUR", "60"))
+AI_MAX_AUTO_REPLIES_PER_CONVERSATION_10MIN = int(
+    env("AI_MAX_AUTO_REPLIES_PER_CONVERSATION_10MIN", "5")
+)
+AI_MAX_REPLY_CHARS = int(env("AI_MAX_REPLY_CHARS", "1500"))
+# Messages kept verbatim in the prompt (short-term memory window).
+AI_SHORT_TERM_WINDOW = int(env("AI_SHORT_TERM_WINDOW", "20"))
+AI_SHORT_TERM_TTL_HOURS = int(env("AI_SHORT_TERM_TTL_HOURS", "24"))
+# Summarize / extract long-term facts every N new messages in a conversation.
+AI_MEMORY_UPDATE_EVERY = int(env("AI_MEMORY_UPDATE_EVERY", "6"))
+AI_LONG_TERM_IN_PROMPT = int(env("AI_LONG_TERM_IN_PROMPT", "10"))
+# When staff reply by hand (in the app or in Zalo), the AI stays silent for this long.
+HUMAN_TAKEOVER_AUTO_MINUTES = int(env("HUMAN_TAKEOVER_AUTO_MINUTES", "30"))
 
 # --- Channels feature flags --------------------------------------------------------
 ZALO_PERSONAL_UNOFFICIAL_ENABLED = env_bool("ZALO_PERSONAL_UNOFFICIAL_ENABLED", False)
@@ -233,6 +259,10 @@ ZALO_BOT_POLL_TIMEOUT_SECONDS = int(env("ZALO_BOT_POLL_TIMEOUT_SECONDS", "10"))
 ZALO_BOT_POLL_INTERVAL_SECONDS = int(env("ZALO_BOT_POLL_INTERVAL_SECONDS", "15"))
 
 CELERY_BEAT_SCHEDULE = {
+    "ai-expire-approvals": {
+        "task": "apps.ai_engine.tasks.expire_approvals",
+        "schedule": 300.0,
+    },
     "zalo-oa-refresh-tokens": {
         "task": "apps.channels.tasks.refresh_expiring_oa_tokens",
         "schedule": 600.0,

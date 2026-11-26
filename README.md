@@ -7,7 +7,11 @@ Tài liệu gốc: [`docs/ZALO_AI_CLAUDE_CODE_BLUEPRINT.md`](docs/ZALO_AI_CLAUDE
 [`docs/ZALO_AI_CLAUDE_CODE_KICKOFF.md`](docs/ZALO_AI_CLAUDE_CODE_KICKOFF.md). Quy tắc làm việc:
 [`CLAUDE.md`](CLAUDE.md).
 
-## Trạng thái: Phase 2 (Zalo OA + Zalo Bot), chờ duyệt
+## Trạng thái: Phase 3 (AI Engine), chờ duyệt
+
+Phase 3 thêm AI Engine: kiểm tra quyền hạn, trí nhớ ngắn/dài hạn, prompt builder, bộ lọc an
+toàn, hàng đợi duyệt (gắn `owner_staff_ref`), dừng khẩn cấp và tiếp quản hội thoại. Mặc định
+chạy `MockProvider`; bật Claude thật theo [`docs/PHASE3_AI_ENGINE.md`](docs/PHASE3_AI_ENGINE.md).
 
 Phase 2 thêm kết nối Zalo OA (OAuth v4 + PKCE, webhook có chữ ký, gửi/nhận tin, đồng bộ
 danh bạ, tự làm mới token) và Zalo Bot (webhook hoặc getUpdates, sendMessage). Hướng dẫn cấu
@@ -15,10 +19,11 @@ hình và danh sách thông tin cần đăng ký: [`docs/PHASE2_ZALO_SETUP.md`](
 
 | Có | Chưa (phase sau) |
 |---|---|
-| Zalo OA + Zalo Bot qua API chính thức, mock Zalo cho test (Phase 2) | AI tự trả lời: quyền hạn, trí nhớ, duyệt (Phase 3) |
+| Zalo OA + Zalo Bot qua API chính thức, mock Zalo cho test (Phase 2) | |
+| AI Engine: quyền hạn, trí nhớ, duyệt, dừng khẩn cấp, tiếp quản (Phase 3) | |
 | Models (Blueprint C2 + bổ sung Kickoff), migrations | |
 | JWT auth, tenant middleware, RBAC owner/admin/viewer, AuditLog | Đăng nhập Zalo cá nhân (Phase 2b) |
-| CRUD API + OpenAPI (`/api/schema/`, `/api/docs/`) | Gọi Claude API thật, prompt, memory (Phase 3) |
+| CRUD API + OpenAPI (`/api/schema/`, `/api/docs/`) | |
 | Channel đa tài khoản, `ChannelProvider` + provider giả lập, hộp "Chờ chủ gửi" | Kết nối AIVA sandbox (Phase 3.5) |
 | `LLMProvider` + `MockProvider` + `AnthropicProvider` | Dashboard UI (Phase 4) |
 | `apps/integrations/aiva/`: schema v1, HMAC, `MockAIVAClient`, outbox model | |
@@ -49,7 +54,8 @@ python manage.py spectacular --file openapi.yaml --validate   # xuất OpenAPI s
 | `AIVA_INTEGRATION_MODE` | `off` | `off` không gọi ra ngoài; `sandbox` chỉ dữ liệu demo; `live` cần GĐ duyệt |
 | `ZALO_PERSONAL_UNOFFICIAL_ENABLED` | `false` | Provider Zalo cá nhân bị chặn hoàn toàn |
 | `ZALO_CHANNEL_BACKEND` | `mock` | Tin gửi đi nằm trong bộ nhớ, không gọi Zalo; `real` mới gọi API Zalo |
-| `LLM_PROVIDER` | `mock` | Không gọi Claude API |
+| `LLM_PROVIDER` | `mock` | Không gọi Claude API; `anthropic` + `ANTHROPIC_API_KEY` để bật Claude |
+| `AI_ENGINE_ENABLED` | `true` | `false` = tắt AI cho mọi tenant (tin đến vẫn được lưu) |
 
 ## API chính
 
@@ -58,7 +64,9 @@ python manage.py spectacular --file openapi.yaml --validate   # xuất OpenAPI s
 `disconnect/`, `sync-contacts/`, `refresh-token/`, `webhook-info/`), `/api/contacts/` (+ `memory/`),
 `/api/contact-groups/`, `/api/conversations/` (+ `messages/`, `reply/`), `/api/owner-sends/`
 (hộp "Chờ chủ gửi"), `/api/permissions/rules/`, `/api/approvals/` (+ `approve/`, `reject/`),
-`/api/ai/profile/`, `/api/ai/style/`, `/api/dashboard/stats/`.
+`/api/ai/profile/`, `/api/ai/style/`, `/api/ai/control/`, `/api/ai/emergency-stop/`,
+`/api/ai/resume/`, `/api/ai/preview/`, `/api/ai/runs/`, `/api/memories/`,
+`/api/conversations/{id}/takeover/` + `release/`, `/api/dashboard/stats/`.
 
 Zalo gọi vào (công khai, xác thực từng request): `/webhooks/zalo-oa/`,
 `/webhooks/zalo-oa/<webhook_key>/`, `/webhooks/zalo-bot/<webhook_key>/`,

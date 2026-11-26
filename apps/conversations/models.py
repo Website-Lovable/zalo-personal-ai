@@ -21,12 +21,27 @@ class Conversation(TenantScopedModel):
     ai_enabled = models.BooleanField(default=True)
     # Human takeover (Blueprint C6 #8): owner handles the thread, AI stays silent.
     human_takeover = models.BooleanField(default=False)
+    takeover_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    takeover_at = models.DateTimeField(null=True, blank=True)
+    # null = until released by hand; otherwise the AI may answer again after this time.
+    takeover_until = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-last_message_at", "-id"]
 
     def __str__(self):
         return f"Conversation #{self.pk} with {self.contact}"
+
+    def takeover_active(self, now=None) -> bool:
+        if not self.human_takeover:
+            return False
+        if self.takeover_until is None:
+            return True
+        from django.utils import timezone
+
+        return self.takeover_until > (now or timezone.now())
 
 
 class Message(TenantScopedModel):

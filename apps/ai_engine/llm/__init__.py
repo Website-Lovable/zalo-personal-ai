@@ -23,7 +23,12 @@ def get_llm_provider(kind: str = "main") -> LLMProvider:
     if settings.LLM_PROVIDER == "anthropic":
         from .anthropic_provider import AnthropicProvider
 
-        return AnthropicProvider(settings.ANTHROPIC_API_KEY, default_model=model)
+        return AnthropicProvider(
+            settings.ANTHROPIC_API_KEY,
+            default_model=model,
+            timeout=float(settings.LLM_TIMEOUT_SECONDS),
+            refusal_fallback=settings.LLM_REFUSAL_FALLBACK,
+        )
     if settings.LLM_PROVIDER == "mock":
         return MockProvider(model=f"mock-{model}")
     raise LLMError(f"Unknown LLM_PROVIDER: {settings.LLM_PROVIDER}")

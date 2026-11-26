@@ -55,7 +55,21 @@ class ApprovalQueue(TenantScopedModel):
         INBOUND_REPLY = "inbound_reply", "Trả lời tin nhắn đến"
         AIVA_OUTREACH = "aiva_outreach", "Tin chăm sóc từ Sales AI"
 
+    class Kind(models.TextChoices):
+        DRAFT = "draft", "Bản nháp chờ duyệt"
+        ESCALATION = "escalation", "Cần người xử lý"
+
     source = models.CharField(max_length=20, choices=Source.choices, default=Source.INBOUND_REPLY)
+    kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.DRAFT)
+    conversation = models.ForeignKey(
+        "conversations.Conversation",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="approvals",
+    )
+    # Machine codes explaining why a human must decide (e.g. ["sensitive:gia"]).
+    reasons = models.JSONField(default=list, blank=True)
     message = models.OneToOneField(
         "conversations.Message",
         null=True,
@@ -82,6 +96,18 @@ class ApprovalQueue(TenantScopedModel):
     reviewed_at = models.DateTimeField(null=True, blank=True)
     modified_response = models.TextField(blank=True)
     expires_at = models.DateTimeField()
+    sent_message = models.ForeignKey(
+        "conversations.Message",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    send_error = models.CharField(max_length=500, blank=True)
+
+    @property
+    def final_text(self) -> str:
+        return self.modified_response or self.proposed_response
 
     class Meta:
         ordering = ["expires_at"]

@@ -133,15 +133,40 @@ def test_everything_refused_while_flag_off(client_a, personal):
 
 
 def test_core_modules_do_not_import_the_personal_package():
+    """The package must be removable: core code may only import it inside
+    ``try: ... except ImportError`` (e.g. the Phase 3 pipeline's optional typing delay)."""
+    import ast
     import pathlib
 
     root = pathlib.Path(__file__).resolve().parents[2]
     allowed = {"providers/personal_unofficial", "channels/tests", "channels/providers/__init__.py"}
+
+    def guarded_imports(tree):
+        ok = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Try) and any(
+                isinstance(h.type, ast.Name) and h.type.id == "ImportError" for h in node.handlers
+            ):
+                for child in node.body:
+                    for sub in ast.walk(child):
+                        ok.add(id(sub))
+        return ok
+
     for path in root.rglob("*.py"):
         rel = path.as_posix()
         if any(part in rel for part in allowed):
             continue
-        assert "personal_unofficial" not in path.read_text(), rel
+        tree = ast.parse(path.read_text())
+        ok = guarded_imports(tree)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom | ast.Import):
+                names = (
+                    [node.module or ""]
+                    if isinstance(node, ast.ImportFrom)
+                    else [a.name for a in node.names]
+                )
+                if any("personal_unofficial" in n for n in names):
+                    assert id(node) in ok, f"{rel}:{node.lineno} imports it unguarded"
 
 
 def test_personal_channels_are_tenant_scoped(enabled, personal, client_b, owner_b):
