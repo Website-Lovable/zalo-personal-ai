@@ -1,0 +1,17 @@
+{% load static %}<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b6bcb">
+  <title>Trợ lý Zalo AI</title>
+  <link rel="icon" href="{% static 'dashboard/icon.svg' %}" type="image/svg+xml">
+  <link rel="stylesheet" href="{% static 'dashboard/app.css' %}">
+</head>
+<body>
+  <noscript>Cần bật JavaScript để dùng giao diện quản trị.</noscript>
+  <div id="app" aria-live="polite"></div>
+  <div id="toasts" class="toasts" role="status"></div>
+  <script src="{% static 'dashboard/app.js' %}" defer></script>
+</body>
+</html>
