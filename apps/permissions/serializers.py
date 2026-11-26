@@ -39,13 +39,21 @@ class PermissionRuleSerializer(TenantScopedSerializer):
 
 
 class ApprovalSerializer(serializers.ModelSerializer):
+    message_text = serializers.CharField(source="message.content", read_only=True, default="")
+    contact_name = serializers.CharField(source="contact.display_name", read_only=True, default="")
+
     class Meta:
         model = ApprovalQueue
         fields = [
             "id",
             "source",
+            "kind",
             "message",
+            "message_text",
+            "conversation",
             "contact",
+            "contact_name",
+            "reasons",
             "proposed_response",
             "ai_confidence",
             "status",
@@ -54,6 +62,8 @@ class ApprovalSerializer(serializers.ModelSerializer):
             "reviewed_at",
             "modified_response",
             "expires_at",
+            "sent_message",
+            "send_error",
             "data_origin",
             "created_at",
         ]

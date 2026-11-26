@@ -1,6 +1,12 @@
-"""Anthropic Claude provider. Phase 1: importable and unit-tested with a mocked transport.
+"""Anthropic Claude provider (Kickoff 4).
 
-The real key is only needed from Phase 3 (ANTHROPIC_API_KEY in .env).
+Enabled with LLM_PROVIDER=anthropic and ANTHROPIC_API_KEY in the server's .env.
+- Stable system prefix (owner profile/style/rules) is sent with ``cache_control``.
+- ``json_schema`` uses structured outputs (``output_config.format``).
+- ``effort`` maps to ``output_config.effort``.
+- On models that support it, the server-side refusal fallback is on by default
+  (``LLM_REFUSAL_FALLBACK``): a request declined by the safety classifiers is re-run on a
+  fallback model chosen by the API instead of failing.
 """
 
 from __future__ import annotations
@@ -10,6 +16,10 @@ from typing import Any
 import anthropic
 
 from .base import LLMError, LLMMessage, LLMProvider, LLMResult, LLMUsageInfo
+
+FALLBACK_BETA = "server-side-fallback-2026-07-01"
+# Model families that accept ``fallbacks: "default"`` (Haiku has no server-side fallback).
+_FALLBACK_MODEL_PREFIXES = ("claude-sonnet-5-5", "claude-opus-5", "claude-fable-5")
 
 
 class AnthropicProvider(LLMProvider):
@@ -24,6 +34,7 @@ class AnthropicProvider(LLMProvider):
         http_client: Any = None,
         max_retries: int = 2,
         timeout: float = 60.0,
+        refusal_fallback: bool = True,
     ):
         if client is None:
             if not api_key:
@@ -38,6 +49,7 @@ class AnthropicProvider(LLMProvider):
             client = anthropic.Anthropic(**kwargs)
         self.client = client
         self.default_model = default_model
+        self.refusal_fallback = refusal_fallback
 
     @staticmethod
     def _system_blocks(system: str | None, cacheable_system: str | None) -> list[dict]:
@@ -59,22 +71,38 @@ class AnthropicProvider(LLMProvider):
         *,
         model: str | None = None,
         cacheable_system: str | None = None,
+        json_schema: dict | None = None,
+        effort: str | None = None,
     ) -> LLMResult:
+        model_id = model or self.default_model
         params: dict[str, Any] = {
-            "model": model or self.default_model,
+            "model": model_id,
             "max_tokens": max_tokens,
             "messages": [{"role": m.role, "content": m.content} for m in messages],
         }
         blocks = self._system_blocks(system, cacheable_system)
         if blocks:
             params["system"] = blocks
+        output_config: dict[str, Any] = {}
+        if json_schema:
+            output_config["format"] = {"type": "json_schema", "schema": json_schema}
+        if effort:
+            output_config["effort"] = effort
+        if output_config:
+            params["output_config"] = output_config
+        use_fallback = self.refusal_fallback and model_id.startswith(_FALLBACK_MODEL_PREFIXES)
         try:
-            response = self.client.messages.create(**params)
+            if use_fallback:
+                response = self.client.beta.messages.create(
+                    betas=[FALLBACK_BETA], fallbacks="default", **params
+                )
+            else:
+                response = self.client.messages.create(**params)
         except anthropic.RateLimitError as exc:
             raise LLMError("Anthropic rate limit") from exc
         except anthropic.APIStatusError as exc:
             raise LLMError(f"Anthropic API error {exc.status_code}") from exc
-        except anthropic.APIConnectionError as exc:
+        except anthropic.APIConnectionError as exc:  # includes timeouts
             raise LLMError("Anthropic connection error") from exc
 
         text = "".join(block.text for block in response.content if block.type == "text")

@@ -50,9 +50,13 @@ class LLMProvider(ABC):
         *,
         model: str | None = None,
         cacheable_system: str | None = None,
+        json_schema: dict | None = None,
+        effort: str | None = None,
     ) -> LLMResult:
         """Generate a reply.
 
         ``cacheable_system`` is the stable part of the system prompt (owner profile, style);
         providers that support prompt caching cache it, ``system`` holds the volatile part.
+        ``json_schema`` asks for a JSON object matching the schema (``LLMResult.text`` is
+        then the JSON document). ``effort`` = low | medium | high (provider hint).
         """
