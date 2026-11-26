@@ -233,9 +233,11 @@ def test_real_row_is_never_sent_in_sandbox(sandbox, tenant_a):
         data_origin="real",
         idempotency_key="x",
     )
-    assert delivery.deliver_due()["dead"] == 1
+    # Phase 6: frozen (not dead-lettered), so a live -> sandbox rollback loses nothing
+    assert delivery.deliver_due() == {"sent": 0, "failed": 0, "dead": 0}
+    assert delivery.deliver_one(item.pk) is None
     item.refresh_from_db()
-    assert item.attempts == 0 and "blocked" in item.last_error and sandbox.received == []
+    assert item.status == "pending" and item.attempts == 0 and sandbox.received == []
 
 
 def test_backoff_is_exponential_and_capped(settings):

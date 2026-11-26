@@ -33,7 +33,13 @@ from apps.dashboard.views import (
     StatsView,
     app_shell,
 )
-from apps.integrations.aiva.views import ExchangeLogViewSet, IntegrationStatusView, OutboxViewSet
+from apps.integrations.aiva.views import (
+    ExchangeLogViewSet,
+    IntegrationStatusView,
+    LiveActionView,
+    LiveStatusView,
+    OutboxViewSet,
+)
 from apps.memory.views import LongTermMemoryViewSet
 from apps.permissions.views import ApprovalViewSet, PermissionRuleViewSet
 from common import observability
@@ -94,6 +100,13 @@ urlpatterns = [
         "api/integrations/aiva/status/",
         IntegrationStatusView.as_view(),
         name="aiva-integration-status",
+    ),
+    # Phase 6: the tenant's live (real-data) enrollment, review and stop buttons
+    path("api/integrations/aiva/live/", LiveStatusView.as_view(), name="aiva-live"),
+    path(
+        "api/integrations/aiva/live/<str:op>/",
+        LiveActionView.as_view(),
+        name="aiva-live-action",
     ),
     path("api/", include("apps.accounts.urls")),
     path("api/", include(router.urls)),

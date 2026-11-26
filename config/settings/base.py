@@ -271,6 +271,11 @@ if AIVA_INTEGRATION_MODE == "live" and not AIVA_LIVE_APPROVED:
 AIVA_CLIENT = env("AIVA_CLIENT", "http")
 if AIVA_CLIENT not in {"http", "mock"}:
     raise ImproperlyConfigured("AIVA_CLIENT must be http or mock")
+if AIVA_INTEGRATION_MODE == "live" and AIVA_CLIENT != "http":
+    raise ImproperlyConfigured("AIVA_INTEGRATION_MODE=live needs AIVA_CLIENT=http")
+# Reference of the director's written approval of live mode (e.g. "QĐ 12/2026 ngày 01/12").
+# Written into the audit trail; the Phase 6 preflight fails without it.
+AIVA_LIVE_APPROVAL_REF = env("AIVA_LIVE_APPROVAL_REF", "")
 AIVA_EVENTS_PATH = env("AIVA_EVENTS_PATH", "/api/integration/zalo-ai/v1/events")
 AIVA_HEALTH_PATH = env("AIVA_HEALTH_PATH", "/api/integration/zalo-ai/v1/health")
 AIVA_OUTBOUND_TOKEN = env("AIVA_OUTBOUND_TOKEN", "")  # bearer token AIVA gave us (optional)

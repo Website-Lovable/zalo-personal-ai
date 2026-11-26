@@ -62,7 +62,7 @@ python manage.py spectacular --file openapi.yaml --validate   # xuất OpenAPI s
 
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
-| `AIVA_INTEGRATION_MODE` | `off` | `off` không gọi ra ngoài; `sandbox` chỉ dữ liệu demo; `live` cần GĐ duyệt (`AIVA_LIVE_APPROVED=true`, thiếu thì app không khởi động) |
+| `AIVA_INTEGRATION_MODE` | `off` | `off` không gọi ra ngoài; `sandbox` chỉ dữ liệu demo; `live` cần GĐ duyệt (`AIVA_LIVE_APPROVED=true`, thiếu thì app không khởi động) và từng tenant phải được kích hoạt riêng (xem `docs/PHASE6_AIVA_LIVE.md`) |
 | `ZALO_PERSONAL_UNOFFICIAL_ENABLED` | `false` | Provider Zalo cá nhân bị chặn hoàn toàn |
 | `ZALO_CHANNEL_BACKEND` | `mock` | Tin gửi đi nằm trong bộ nhớ, không gọi Zalo; `real` mới gọi API Zalo |
 | `LLM_PROVIDER` | `mock` | Không gọi Claude API; `anthropic` + `ANTHROPIC_API_KEY` để bật Claude |

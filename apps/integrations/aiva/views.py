@@ -3,6 +3,9 @@
 1. ``/api/integration/v1/...`` — called by AIVA (service token + HMAC, ``inbound_auth``).
 2. ``/api/integrations/aiva/...`` — tenant users (JWT) watch the integration: status, outbox,
    exchange log, and re-queue a dead event (admin).
+3. ``/api/integrations/aiva/live/`` (Phase 6) — the tenant's live enrollment: review, owner
+   acknowledgement, pause (admin) and revoke (owner). Activation and resume are operator
+   commands (``manage.py aiva_live``).
 """
 
 from __future__ import annotations
@@ -23,9 +26,10 @@ from apps.accounts.rbac import IsTenantMember, RolePermission
 from common.audit import log_action
 from common.tenancy import get_request_tenant
 
-from . import config, delivery, inbound
+from . import config, delivery, inbound, live
 from .inbound_auth import AIVAServiceAuthentication, audit_inbound
 from .models import IntegrationAuditLog, IntegrationInboundRequest, IntegrationOutbox
+from .preflight import run_preflight
 
 MAX_BODY_BYTES = 64 * 1024
 IDEMPOTENCY_HEADER = "Idempotency-Key"
@@ -228,8 +232,92 @@ class IntegrationStatusView(APIView):
                 "tenant_ref": tenant.external_ref,
                 "allowed_data_origins": sorted(config.allowed_data_origins()),
                 "outbox": {s: counts.get(s, 0) for s in IntegrationOutbox.Status.values},
+                "live_exchange": live.can_exchange(tenant)[0] if config.is_enabled() else False,
             }
         )
+
+
+def _live_payload(tenant) -> dict:
+    enrollment = live.enrollment_for(tenant)
+    switch = live.get_switch()
+    report = run_preflight(tenant=tenant)
+    return {
+        "mode": config.get_mode(),
+        "live_approved": config.live_approved(),
+        "global_paused": switch.paused,
+        "live_exchange": config.get_mode() == config.LIVE and live.can_exchange(tenant)[0],
+        "acknowledgement_text": live.ACKNOWLEDGEMENT_TEXT,
+        "acknowledgement_version": live.ACKNOWLEDGEMENT_VERSION,
+        "enrollment": None
+        if enrollment is None
+        else {
+            "status": enrollment.status,
+            "acknowledged_by": enrollment.acknowledged_by.get_username()
+            if enrollment.acknowledged_by
+            else "",
+            "acknowledged_at": enrollment.acknowledged_at,
+            "activated_at": enrollment.activated_at,
+            "approval_ref": enrollment.approval_ref,
+            "paused_at": enrollment.paused_at,
+            "pause_reason": enrollment.pause_reason,
+        },
+        "review": report.as_dict(),
+    }
+
+
+class LiveStatusView(APIView):
+    """Live enrollment of the caller's tenant plus the Phase 6 review (admin and owner)."""
+
+    permission_classes = [IsTenantMember, RolePermission]
+    read_role = "admin"
+
+    @extend_schema(tags=["integrations"], responses=OpenApiTypes.OBJECT)
+    def get(self, request):
+        return Response(_live_payload(get_request_tenant(request)))
+
+
+class LiveActionView(APIView):
+    """POST acknowledge (owner) | pause (admin, needs reason) | revoke (owner)."""
+
+    permission_classes = [IsTenantMember, RolePermission]
+    write_role = "admin"
+    OWNER_ONLY = {"acknowledge", "revoke"}
+
+    @extend_schema(
+        tags=["integrations"],
+        request=inline_serializer(
+            "AIVALiveAction",
+            {
+                "reason": serializers.CharField(required=False),
+                "confirm": serializers.BooleanField(required=False),
+            },
+        ),
+        responses=OpenApiTypes.OBJECT,
+    )
+    def post(self, request, op: str):
+        tenant = get_request_tenant(request)
+        user = request.user
+        if op not in {"acknowledge", "pause", "revoke"}:
+            return Response({"detail": "Thao tác không hợp lệ."}, status=404)
+        if op in self.OWNER_ONLY and not user.has_role("owner"):
+            return Response({"detail": "Chỉ chủ tài khoản được thực hiện."}, status=403)
+        reason = str(request.data.get("reason", "")).strip()[:500]
+        by = f"{user.get_username()} (app)"
+        try:
+            if op == "acknowledge":
+                if request.data.get("confirm") is not True:
+                    return Response(
+                        {"detail": "Cần đánh dấu xác nhận đã đọc nội dung (confirm=true)."},
+                        status=400,
+                    )
+                live.acknowledge(tenant, user, request=request)
+            elif op == "pause":
+                live.pause(tenant, by=by, reason=reason, user=user, request=request)
+            else:
+                live.revoke(tenant, by=by, reason=reason, user=user, request=request)
+        except live.LiveStateError as exc:
+            return Response({"detail": str(exc)}, status=409)
+        return Response(_live_payload(tenant))
 
 
 class OutboxViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):

@@ -19,7 +19,7 @@ from rest_framework.authentication import BaseAuthentication
 
 from apps.accounts.models import Tenant
 
-from . import config
+from . import config, live
 from .models import IntegrationAuditLog
 from .signing import SIGNATURE_HEADER, TIMESTAMP_HEADER, SignatureError, verify_request_signature
 
@@ -105,6 +105,10 @@ class AIVAServiceAuthentication(BaseAuthentication):
             )
         except SignatureError as exc:
             _fail(request, f"signature: {exc}", tenant)
+        allowed, reason = live.can_exchange(tenant)
+        if not allowed:  # Phase 6: tenant not activated, paused, or platform switch paused
+            audit_inbound(request, tenant=tenant, success=False, status=503, detail=reason)
+            raise IntegrationOff(f"Kết nối live chưa mở cho tenant này ({reason}).")
         return AIVAService(tenant), None
 
 

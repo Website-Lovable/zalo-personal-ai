@@ -88,6 +88,11 @@ class Contact(TenantScopedModel):
     def has_consent(self) -> bool:
         return self.consent_status == ConsentStatus.GRANTED
 
+    @property
+    def has_documented_consent(self) -> bool:
+        """Consent we can show proof of: granted, with a source and a time (Kickoff 2.1)."""
+        return self.has_consent and bool(self.consent_source) and self.consent_at is not None
+
     def can_contact_proactively(self) -> bool:
         """Outbound messages the contact did not ask for need explicit consent."""
         return self.has_consent and not self.channel.is_personal
