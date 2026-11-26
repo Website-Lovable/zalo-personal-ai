@@ -6,6 +6,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from apps.accounts.rbac import IsTenantMember, RolePermission
+from apps.ai_engine import control
 from common.audit import log_action
 from common.tenancy import TenantScopedViewSet, get_request_tenant
 
@@ -15,6 +16,7 @@ from .serializers import (
     MessageSerializer,
     PendingOwnerSendSerializer,
     ReplySerializer,
+    TakeoverSerializer,
 )
 from .services import ReplyNotAllowed, SendFailed, dispatch_reply
 
@@ -65,7 +67,32 @@ class ConversationViewSet(TenantScopedViewSet):
             log_action("message.reply_queued", obj=result.pending, request=request)
             return Response({"detail": "Đã đưa vào hộp 'Chờ chủ gửi'."}, status=202)
         log_action("message.sent_by_staff", obj=result.message, request=request)
+        # A person is talking now: keep the AI quiet for a while (Blueprint C6 #8).
+        control.auto_take_over(conversation, user=request.user)
         return Response(MessageSerializer(result.message).data, status=201)
+
+    @extend_schema(request=TakeoverSerializer, responses=ConversationSerializer)
+    @action(detail=True, methods=["post"])
+    def takeover(self, request, pk=None):
+        """Human takeover: the AI stops answering this conversation (optionally for N minutes)."""
+        conversation = self.get_object()
+        serializer = TakeoverSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        control.take_over(
+            conversation,
+            user=request.user,
+            minutes=serializer.validated_data.get("minutes"),
+            request=request,
+        )
+        return Response(self.get_serializer(conversation).data)
+
+    @extend_schema(request=None, responses=ConversationSerializer)
+    @action(detail=True, methods=["post"])
+    def release(self, request, pk=None):
+        """Give the conversation back to the AI."""
+        conversation = self.get_object()
+        control.release(conversation, user=request.user, request=request)
+        return Response(self.get_serializer(conversation).data)
 
 
 class PendingOwnerSendViewSet(

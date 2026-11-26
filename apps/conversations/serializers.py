@@ -19,11 +19,22 @@ class ConversationSerializer(TenantScopedSerializer):
             "last_message_at",
             "ai_enabled",
             "human_takeover",
+            "takeover_by",
+            "takeover_at",
+            "takeover_until",
             "data_origin",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "last_message_at", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "last_message_at",
+            "takeover_by",
+            "takeover_at",
+            "takeover_until",
+            "created_at",
+            "updated_at",
+        ]
 
     def validate(self, attrs):
         channel = attrs.get("channel", getattr(self.instance, "channel", None))
@@ -74,3 +85,7 @@ class PendingOwnerSendSerializer(serializers.ModelSerializer):
 
 class ReplySerializer(serializers.Serializer):
     text = serializers.CharField(max_length=2000)
+
+
+class TakeoverSerializer(serializers.Serializer):
+    minutes = serializers.IntegerField(required=False, min_value=1, max_value=60 * 24 * 30)

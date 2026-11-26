@@ -62,7 +62,9 @@ def test_anthropic_provider_request_and_response():
         captured["url"] = str(request.url)
         return _ok_response(request)
 
-    provider = AnthropicProvider(None, "claude-sonnet-5-5", client=_anthropic_with(handler))
+    provider = AnthropicProvider(
+        None, "claude-sonnet-5-5", client=_anthropic_with(handler), refusal_fallback=False
+    )
     result = provider.generate(
         [LLMMessage("user", "Chào em")],
         system="Volatile part",
@@ -149,3 +151,56 @@ def test_record_usage(tenant_a):
     usage = record_usage(tenant_a, result, purpose="reply")
     assert LLMUsage.objects.for_tenant(tenant_a).get() == usage
     assert usage.input_tokens == 3
+
+
+def test_anthropic_provider_structured_output_effort_and_fallback():
+    captured = {}
+
+    def handler(request):
+        captured["body"] = json.loads(request.content)
+        captured["url"] = str(request.url)
+        captured["beta"] = request.headers.get("anthropic-beta", "")
+        return _ok_response(request)
+
+    provider = AnthropicProvider(None, "claude-sonnet-5-5", client=_anthropic_with(handler))
+    schema = {"type": "object", "properties": {}, "additionalProperties": False}
+    provider.generate([LLMMessage("user", "x")], json_schema=schema, effort="low")
+    body = captured["body"]
+    assert body["output_config"] == {
+        "format": {"type": "json_schema", "schema": schema},
+        "effort": "low",
+    }
+    assert body["fallbacks"] == "default"
+    assert "server-side-fallback-2026-07-01" in captured["beta"]
+
+    # Haiku has no server-side fallback: plain endpoint, no fallbacks field
+    provider.generate([LLMMessage("user", "x")], model="claude-haiku-5-5")
+    assert "fallbacks" not in captured["body"] and "output_config" not in captured["body"]
+    assert not captured["url"].endswith("beta=true")
+
+
+def test_mock_provider_json_schema():
+    schema = {
+        "type": "object",
+        "properties": {
+            "reply": {"type": "string"},
+            "confidence": {"type": "number"},
+            "n": {"type": "integer"},
+            "flag": {"type": "boolean"},
+            "tags": {"type": "array"},
+            "other": {"type": "object"},
+        },
+    }
+    data = json.loads(
+        MockProvider(canned_reply="Hi", canned_json={"flag": True})
+        .generate([LLMMessage("user", "x")], json_schema=schema)
+        .text
+    )
+    assert data == {
+        "reply": "Hi",
+        "confidence": 0.9,
+        "n": 5,
+        "flag": True,
+        "tags": [],
+        "other": None,
+    }

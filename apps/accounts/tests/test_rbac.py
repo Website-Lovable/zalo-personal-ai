@@ -3,7 +3,7 @@
 import pytest
 
 from conftest import auth_client
-from tests.factories import ChannelFactory, ContactFactory
+from tests.factories import ApprovalFactory, ChannelFactory, ContactFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -50,6 +50,7 @@ def test_only_owner_can_acknowledge_risk(admin_a, owner_a, tenant_a):
     assert auth_client(owner_a).post(url, payload, format="json").status_code == 201
 
 
-def test_viewer_cannot_decide_approvals(viewer_a):
+def test_viewer_cannot_decide_approvals_not_assigned_to_them(viewer_a, tenant_a):
+    item = ApprovalFactory(message__conversation__contact__channel__tenant=tenant_a)
     client = auth_client(viewer_a)
-    assert client.post("/api/approvals/1/approve/").status_code == 403
+    assert client.post(f"/api/approvals/{item.pk}/approve/").status_code == 403
