@@ -1,0 +1,35 @@
+# Alertmanager: where alerts go. Edit the two marked values before enabling the profile.
+# Secrets are files in deploy/monitoring/secrets/ (not committed):
+#   telegram_bot_token  - token of a Telegram bot created with @BotFather
+#   smtp_password       - password of the SMTP account below (optional, e-mail receiver)
+route:
+  receiver: owner
+  group_by: [alertname]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers: [severity="critical"]
+      receiver: owner
+      repeat_interval: 1h
+
+receivers:
+  - name: owner
+    telegram_configs:
+      - bot_token_file: /etc/alertmanager/secrets/telegram_bot_token
+        chat_id: -1000000000000  # EDIT: the owner's / ops group's Telegram chat id
+        parse_mode: HTML
+        send_resolved: true
+    # Optional e-mail copy. Uncomment and fill in.
+    # email_configs:
+    #   - to: ops@example.com
+    #     from: zalo-ai-alerts@example.com
+    #     smarthost: smtp.example.com:587
+    #     auth_username: zalo-ai-alerts@example.com
+    #     auth_password_file: /etc/alertmanager/secrets/smtp_password
+    #     send_resolved: true
+
+inhibit_rules:
+  # When the app is down, do not also page for everything that depends on it.
+  - source_matchers: [alertname="AppDown"]
+    target_matchers: [severity="warning"]

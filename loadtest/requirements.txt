@@ -1,0 +1,2 @@
+# Load-test tooling only (never installed in the app image).
+locust==2.37.14

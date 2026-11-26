@@ -31,7 +31,7 @@ class ApprovalViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets
     # Fine-grained check in services.can_decide (assigned staff may be viewers).
     action_roles = {"approve": "viewer", "reject": "viewer"}
     filterset_fields = ["status", "source", "kind", "owner_staff_ref", "conversation"]
-    queryset = ApprovalQueue.objects.select_related("contact", "conversation")
+    queryset = ApprovalQueue.objects.select_related("contact", "conversation", "message")
 
     def get_queryset(self):
         qs = super().get_queryset().filter(tenant=get_request_tenant(self.request))

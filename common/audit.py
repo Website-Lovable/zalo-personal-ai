@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings
 from django.db import models
 
 from .models import AuditLog
@@ -13,11 +14,17 @@ _REDACTED_FIELDS = {"password", "access_token", "refresh_token", "session_data",
 
 
 def client_ip(request) -> str | None:
+    """The caller's IP. X-Forwarded-For is only trusted for the TRUSTED_PROXY_COUNT reverse
+    proxies we run ourselves (Caddy in production = 1): the left-most entries are written by
+    the client and can be forged, so we take the entry our own proxy appended."""
     if request is None:
         return None
+    proxies = settings.TRUSTED_PROXY_COUNT
     forwarded = request.META.get("HTTP_X_FORWARDED_FOR")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    if proxies > 0 and forwarded:
+        hops = [hop.strip() for hop in forwarded.split(",") if hop.strip()]
+        if hops:
+            return hops[-min(proxies, len(hops))]
     return request.META.get("REMOTE_ADDR")
 
 

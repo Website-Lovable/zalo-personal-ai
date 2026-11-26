@@ -7,7 +7,16 @@ Tài liệu gốc: [`docs/ZALO_AI_CLAUDE_CODE_BLUEPRINT.md`](docs/ZALO_AI_CLAUDE
 [`docs/ZALO_AI_CLAUDE_CODE_KICKOFF.md`](docs/ZALO_AI_CLAUDE_CODE_KICKOFF.md). Quy tắc làm việc:
 [`CLAUDE.md`](CLAUDE.md).
 
-## Trạng thái: Phase 3 (AI Engine), chờ duyệt
+## Trạng thái: Phase 5 (Kiểm thử & Triển khai), chờ duyệt
+
+Phase 5 thêm test end-to-end, kiểm thử tải, rà soát bảo mật, CI/CD (image GHCR + deploy qua
+SSH có người duyệt), stack production (`docker-compose.prod.yml`, Caddy HTTPS, sao lưu,
+tự rollback) và giám sát (Prometheus, Alertmanager, `/readyz/`, `/metrics/`). Chưa triển khai lên
+máy chủ thật: cần máy chủ, tên miền và secret — xem
+[`docs/PHASE5_TESTING_DEPLOYMENT.md`](docs/PHASE5_TESTING_DEPLOYMENT.md) mục 7 và
+[`docs/PHASE5_SECURITY_REVIEW.md`](docs/PHASE5_SECURITY_REVIEW.md).
+
+Các phase trước (đã merge):
 
 Phase 3 thêm AI Engine: kiểm tra quyền hạn, trí nhớ ngắn/dài hạn, prompt builder, bộ lọc an
 toàn, hàng đợi duyệt (gắn `owner_staff_ref`), dừng khẩn cấp và tiếp quản hội thoại. Mặc định

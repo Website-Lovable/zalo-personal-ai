@@ -1,8 +1,11 @@
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, permissions, viewsets
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.exceptions import InvalidToken
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from common.audit import log_action
 from common.tenancy import get_request_tenant
@@ -21,10 +24,35 @@ class RegisterView(generics.CreateAPIView):
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
     authentication_classes: list = []
+    # Brute force / signup spam protection (Phase 5 security review, finding S1).
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_register"
 
 
 class LoginView(TokenObtainPairView):
     serializer_class = TenantTokenObtainPairSerializer
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_login"
+
+    def post(self, request, *args, **kwargs):
+        try:
+            return super().post(request, *args, **kwargs)
+        except (AuthenticationFailed, InvalidToken):
+            username = str(request.data.get("username", ""))[:150]
+            user = User.objects.filter(username=username).only("id", "tenant_id").first()
+            log_action(
+                "auth.login_failed",
+                tenant=user.tenant if user else None,
+                user=None,
+                changes={"username": username},
+                request=request,
+            )
+            raise
+
+
+class RefreshTokenView(TokenRefreshView):
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_refresh"
 
 
 class MeView(APIView):

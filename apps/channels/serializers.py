@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from common.tenancy import TenantScopedSerializer
@@ -10,7 +11,7 @@ class ChannelSerializer(TenantScopedSerializer):
     refresh_token = serializers.CharField(write_only=True, required=False, allow_blank=True)
     webhook_secret = serializers.CharField(write_only=True, required=False, allow_blank=True)
     has_access_token = serializers.SerializerMethodField()
-    risk_acknowledged = serializers.BooleanField(read_only=True)
+    risk_acknowledged = serializers.SerializerMethodField()
 
     class Meta:
         model = Channel
@@ -48,6 +49,11 @@ class ChannelSerializer(TenantScopedSerializer):
 
     def get_has_access_token(self, obj) -> bool:
         return bool(obj.access_token)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_risk_acknowledged(self, obj) -> bool:
+        cached = getattr(obj, "risk_ack_cached", None)  # annotated on list pages
+        return obj.risk_acknowledged if cached is None else bool(cached)
 
     def validate_config(self, value):
         lowered = {k.lower() for k in value}

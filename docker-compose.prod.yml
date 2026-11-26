@@ -1,0 +1,172 @@
+# Production stack for one Linux server (VPS) with Docker Compose v2.
+#   Images come from GHCR (built by .github/workflows/release.yml); nothing is built here.
+#   Secrets live only in .env.production on the server (template: .env.production.example).
+#   Start/upgrade with deploy/scripts/deploy.sh <image-tag>: it backs up the database, runs
+#   migrations, starts the new version and rolls back if it does not become healthy.
+#
+# Profiles:  personal   -> personal Zalo sidecar (only if the owner enabled it, see Phase 2b)
+#            monitoring -> Prometheus + Alertmanager + node-exporter
+name: zalo-ai
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+x-app: &app
+  image: ${APP_IMAGE:-ghcr.io/website-lovable/zalo-personal-ai}:${IMAGE_TAG:?set IMAGE_TAG}
+  restart: unless-stopped
+  env_file: .env.production
+  environment:
+    DJANGO_SETTINGS_MODULE: config.settings.production
+    DATABASE_URL: postgres://${POSTGRES_USER:-zalo}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-zalo_ai}
+    REDIS_URL: redis://redis:6379/0
+    LOG_FORMAT: json
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  networks: [backend]
+  read_only: true
+  tmpfs: [/tmp]
+  security_opt: ["no-new-privileges:true"]
+  logging: *logging
+
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+    networks: [frontend, backend]
+    logging: *logging
+
+  web:
+    <<: *app
+    command: ["gunicorn", "-c", "deploy/gunicorn.conf.py", "config.asgi:application"]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz/', timeout=3)"
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  worker:
+    <<: *app
+    command: ["celery", "-A", "config", "worker", "--loglevel=info", "--concurrency=${CELERY_CONCURRENCY:-4}"]
+    stop_grace_period: 60s
+
+  beat:
+    <<: *app
+    command: ["celery", "-A", "config", "beat", "--loglevel=info", "--schedule", "/tmp/celerybeat-schedule"]
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-zalo_ai}
+      POSTGRES_USER: ${POSTGRES_USER:-zalo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    # (web workers + celery concurrency) x DB_POOL_MAX_SIZE must stay well below this.
+    command: ["postgres", "-c", "max_connections=200", "-c", "shared_buffers=256MB"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Broker + cache + channel layer: never evict keys silently.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
+    logging: *logging
+
+  zalo-personal:
+    profiles: ["personal"]
+    image: ${SIDECAR_IMAGE:-ghcr.io/website-lovable/zalo-personal-sidecar}:${IMAGE_TAG:?set IMAGE_TAG}
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      ZALO_PERSONAL_DJANGO_URL: http://web:8000
+      PORT: "3100"
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    networks: [backend]  # never published: only web/worker talk to it
+    logging: *logging
+
+  prometheus:
+    profiles: ["monitoring"]
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+    volumes:
+      - ./deploy/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./deploy/monitoring/secrets:/etc/prometheus/secrets:ro
+      - promdata:/prometheus
+    ports: ["127.0.0.1:9090:9090"]  # reach it through an SSH tunnel only
+    networks: [backend]
+    logging: *logging
+
+  alertmanager:
+    profiles: ["monitoring"]
+    image: prom/alertmanager:v0.28.1
+    restart: unless-stopped
+    volumes:
+      - ./deploy/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./deploy/monitoring/secrets:/etc/alertmanager/secrets:ro
+    ports: ["127.0.0.1:9093:9093"]
+    networks: [backend]
+    logging: *logging
+
+  node-exporter:
+    profiles: ["monitoring"]
+    image: prom/node-exporter:v1.9.1
+    restart: unless-stopped
+    command: ["--path.rootfs=/host"]
+    pid: host
+    volumes:
+      - /:/host:ro
+    networks: [backend]
+    logging: *logging
+
+networks:
+  frontend: {}
+  backend: {}
+
+volumes:
+  pgdata: {}
+  redisdata: {}
+  caddy_data: {}
+  caddy_config: {}
+  promdata: {}

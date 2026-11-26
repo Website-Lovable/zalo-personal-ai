@@ -19,3 +19,7 @@ celerybeat-schedule
 .DS_Store
 .idea/
 .vscode/
+!.env.production.example
+backups/
+deploy/monitoring/secrets/*
+!deploy/monitoring/secrets/README.md

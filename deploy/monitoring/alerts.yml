@@ -1,0 +1,134 @@
+# Alert rules. Severity "critical" = customers are affected now; "warning" = look today.
+# Descriptions are Vietnamese because they go straight to the owner's Telegram / e-mail.
+groups:
+  - name: availability
+    rules:
+      - alert: AppDown
+        expr: up{job="zalo-ai"} == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "Ứng dụng Zalo AI không phản hồi"
+          description: "Prometheus không gọi được /metrics/ của web trong 2 phút."
+
+      - alert: DatabaseDown
+        expr: zalo_ai_database_up == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "Mất kết nối PostgreSQL"
+          description: "Web không truy vấn được cơ sở dữ liệu."
+
+      - alert: RedisDown
+        expr: zalo_ai_redis_up == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "Mất kết nối Redis"
+          description: "Hàng đợi Celery, cache và thông báo trực tiếp ngừng hoạt động."
+
+      - alert: CeleryStalled
+        expr: zalo_ai_celery_heartbeat_age_seconds > 300 or absent(zalo_ai_celery_heartbeat_age_seconds) or zalo_ai_celery_heartbeat_age_seconds != zalo_ai_celery_heartbeat_age_seconds
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "Celery worker/beat ngừng chạy"
+          description: "Không có heartbeat hơn 5 phút: tin nhắn đến sẽ không được AI xử lý."
+
+      - alert: CeleryBacklog
+        expr: zalo_ai_celery_queue_length > 500
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Hàng đợi Celery tồn {{ $value }} việc"
+          description: "Worker xử lý không kịp; cân nhắc tăng CELERY_CONCURRENCY."
+
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(caddy_http_request_duration_seconds_count{code=~"5.."}[5m]))
+            / sum(rate(caddy_http_request_duration_seconds_count[5m])) > 0.02
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "Tỷ lệ lỗi 5xx trên 2%"
+          description: "Xem log: docker compose -f docker-compose.prod.yml logs web --since 15m"
+
+      - alert: SlowResponses
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(caddy_http_request_duration_seconds_bucket[5m]))) > 1.5
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "p95 thời gian phản hồi trên 1,5 giây"
+
+  - name: business
+    rules:
+      - alert: ChannelRestricted
+        expr: sum(zalo_ai_channels{status="restricted"}) > 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "Có kênh Zalo bị hạn chế"
+          description: "Kênh đã tự dừng gửi. Kiểm tra trong /app/ mục Kênh."
+
+      - alert: WebhookFailures
+        expr: zalo_ai_webhook_events_recent{status="failed"} > 5
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Nhiều sự kiện Zalo xử lý lỗi"
+          description: "{{ $value }} sự kiện lỗi trong 15 phút gần nhất."
+
+      - alert: AIFailures
+        expr: zalo_ai_ai_runs_recent{outcome="failed"} > 5
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "AI lỗi nhiều lần"
+          description: "Kiểm tra ANTHROPIC_API_KEY, hạn mức và log worker."
+
+      - alert: ApprovalsWaitingLong
+        expr: zalo_ai_approvals_pending_oldest_age_seconds > 4 * 3600
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "Bản nháp chờ duyệt quá 4 giờ"
+          description: "{{ $value | humanizeDuration }}; khách đang chờ câu trả lời."
+
+      - alert: AivaOutboxDeadLetters
+        expr: zalo_ai_aiva_outbox{status="dead"} > 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Sự kiện gửi AIVA bị bỏ sau nhiều lần thử"
+
+      - alert: AivaOutboxStuck
+        expr: zalo_ai_aiva_outbox_oldest_waiting_age_seconds > 3600
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "Sự kiện AIVA chưa gửi được hơn 1 giờ"
+
+      - alert: LLMTokenSpike
+        expr: sum(zalo_ai_llm_tokens_last_hour) > 2000000
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "Dùng Claude bất thường (>2 triệu token/giờ)"
+          description: "Kiểm tra chi phí; có thể bật Dừng khẩn cấp nếu cần."
+
+  - name: host
+    rules:
+      - alert: DiskAlmostFull
+        expr: (node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}) < 0.15
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Ổ đĩa máy chủ còn dưới 15%"
+
+      - alert: HighMemory
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.9
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "RAM máy chủ dùng trên 90%"

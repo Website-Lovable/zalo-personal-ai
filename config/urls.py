@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import include, path
@@ -35,6 +36,7 @@ from apps.dashboard.views import (
 from apps.integrations.aiva.views import ExchangeLogViewSet, IntegrationStatusView, OutboxViewSet
 from apps.memory.views import LongTermMemoryViewSet
 from apps.permissions.views import ApprovalViewSet, PermissionRuleViewSet
+from common import observability
 
 router = DefaultRouter()
 router.register("channels", ChannelViewSet, basename="channel")
@@ -58,7 +60,9 @@ def healthz(request):
 
 urlpatterns = [
     path("healthz/", healthz, name="healthz"),
-    path("admin/", admin.site.urls),
+    path("readyz/", observability.readyz, name="readyz"),
+    path("metrics/", observability.metrics, name="metrics"),
+    path(settings.ADMIN_URL, admin.site.urls),
     # Called by Zalo (public; authenticity is checked per request)
     path("webhooks/zalo-oa/", ZaloOAWebhookView.as_view(), name="webhook-zalo-oa"),
     path(

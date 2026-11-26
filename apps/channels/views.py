@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.db.models import Exists, OuterRef
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.decorators import action
@@ -43,6 +44,18 @@ class ChannelViewSet(TenantScopedViewSet):
         "sync_contacts": "admin",
         "refresh_token": "admin",
     }
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if self.action == "list":
+            # One query for the whole page instead of one per channel (Phase 5 N+1 guard).
+            current = ChannelRiskAcknowledgement.objects.filter(
+                channel=OuterRef("pk"),
+                revoked_at__isnull=True,
+                statement_version=RISK_STATEMENT_VERSION,
+            )
+            qs = qs.annotate(risk_ack_cached=Exists(current))
+        return qs
 
     def perform_update(self, serializer):
         secrets_changed = {"access_token", "refresh_token", "webhook_secret"} & set(
