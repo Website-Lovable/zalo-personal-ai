@@ -214,6 +214,32 @@ AIVA_BASE_URL = env("AIVA_BASE_URL", "")
 AIVA_WEBHOOK_SECRET = env("AIVA_WEBHOOK_SECRET", "")
 AIVA_SERVICE_TOKEN = env("AIVA_SERVICE_TOKEN", "")
 AIVA_SIGNATURE_TOLERANCE_SECONDS = int(env("AIVA_SIGNATURE_TOLERANCE_SECONDS", "300"))
+# Live = real customer data. Needs a separate owner approval (Kickoff 2.0 #3, Phase 6).
+AIVA_LIVE_APPROVED = env_bool("AIVA_LIVE_APPROVED", False)
+if AIVA_INTEGRATION_MODE == "live" and not AIVA_LIVE_APPROVED:
+    raise ImproperlyConfigured(
+        "AIVA_INTEGRATION_MODE=live needs owner approval: set AIVA_LIVE_APPROVED=true (Phase 6)"
+    )
+# Outbound (Zalo AI -> AIVA): http = signed webhooks to AIVA_BASE_URL; mock = in-process
+# recorder for sandbox runs without a running AIVA (never allowed in live).
+AIVA_CLIENT = env("AIVA_CLIENT", "http")
+if AIVA_CLIENT not in {"http", "mock"}:
+    raise ImproperlyConfigured("AIVA_CLIENT must be http or mock")
+AIVA_EVENTS_PATH = env("AIVA_EVENTS_PATH", "/api/integration/zalo-ai/v1/events")
+AIVA_HEALTH_PATH = env("AIVA_HEALTH_PATH", "/api/integration/zalo-ai/v1/health")
+AIVA_OUTBOUND_TOKEN = env("AIVA_OUTBOUND_TOKEN", "")  # bearer token AIVA gave us (optional)
+AIVA_HTTP_TIMEOUT_SECONDS = float(env("AIVA_HTTP_TIMEOUT_SECONDS", "10"))
+# Inbound (AIVA -> Zalo AI): AIVA presents AIVA_SERVICE_TOKEN and signs with this secret.
+AIVA_INBOUND_SECRET = env("AIVA_INBOUND_SECRET", "")
+# Outbox delivery: exponential backoff base * 2^(attempt-1), capped; then dead-letter.
+AIVA_OUTBOX_MAX_ATTEMPTS = int(env("AIVA_OUTBOX_MAX_ATTEMPTS", "8"))
+AIVA_OUTBOX_BACKOFF_BASE_SECONDS = int(env("AIVA_OUTBOX_BACKOFF_BASE_SECONDS", "30"))
+AIVA_OUTBOX_BACKOFF_MAX_SECONDS = int(env("AIVA_OUTBOX_BACKOFF_MAX_SECONDS", "3600"))
+AIVA_OUTBOX_BATCH_SIZE = int(env("AIVA_OUTBOX_BATCH_SIZE", "50"))
+# At most one conversation.summary per conversation per interval.
+AIVA_SUMMARY_MIN_INTERVAL_MINUTES = int(env("AIVA_SUMMARY_MIN_INTERVAL_MINUTES", "60"))
+# Long-term facts at or above this importance become profile.update_suggested for CRS.
+AIVA_PROFILE_SUGGESTION_MIN_IMPORTANCE = int(env("AIVA_PROFILE_SUGGESTION_MIN_IMPORTANCE", "7"))
 
 # --- App behaviour -----------------------------------------------------------------
 DEFAULT_AI_RESPONSE_DELAY_SECONDS = int(env("DEFAULT_AI_RESPONSE_DELAY_SECONDS", "3"))
@@ -266,6 +292,10 @@ CELERY_BEAT_SCHEDULE = {
     "zalo-oa-refresh-tokens": {
         "task": "apps.channels.tasks.refresh_expiring_oa_tokens",
         "schedule": 600.0,
+    },
+    "aiva-deliver-outbox": {
+        "task": "apps.integrations.aiva.tasks.deliver_due_outbox",
+        "schedule": 60.0,
     },
     "zalo-bot-poll": {
         "task": "apps.channels.tasks.poll_bot_channels",

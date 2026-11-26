@@ -131,6 +131,8 @@ class AIReplyLog(TimestampMixin, DataOriginMixin):
     model = models.CharField(max_length=100, blank=True)
     confidence = models.FloatField(null=True, blank=True)
     draft = models.TextField(blank=True)
+    # Short tags from the model (e.g. price, booking, handoff). Feeds AIVA opportunity signals.
+    intents = models.JSONField(default=list, blank=True)
     error = models.CharField(max_length=500, blank=True)
     output_message = models.ForeignKey(
         "conversations.Message",

@@ -1,6 +1,7 @@
 from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import action
 
+from apps.integrations.aiva import events as aiva_events
 from apps.integrations.aiva.outbox import enqueue_event
 from apps.memory.models import LongTermMemory
 from apps.memory.serializers import LongTermMemorySerializer
@@ -52,6 +53,7 @@ class ContactViewSet(TenantScopedViewSet):
                 data_origin=contact.data_origin,
                 contact=contact,
             )
+            aiva_events.lead_inbound(contact)  # a contact who wrote earlier just consented
 
     @extend_schema(responses=LongTermMemorySerializer(many=True))
     @action(detail=True, methods=["get"])

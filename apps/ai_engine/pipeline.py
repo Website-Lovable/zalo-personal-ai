@@ -241,7 +241,12 @@ def _run(run: AIReplyLog, message: Message) -> AIReplyLog:
         if limited:
             decision.tighten(checker.APPROVAL, limited)
 
-    common = {"model": drafted.model, "confidence": confidence, "draft": draft}
+    common = {
+        "model": drafted.model,
+        "confidence": confidence,
+        "draft": draft,
+        "intents": drafted.intents,
+    }
     if decision.action != checker.AUTO:
         approval = _create_approval(conversation, message, draft, confidence, decision)
         outcome = (

@@ -25,6 +25,7 @@ from apps.channels.webhooks import (
 from apps.contacts.views import ContactGroupViewSet, ContactViewSet
 from apps.conversations.views import ConversationViewSet, PendingOwnerSendViewSet
 from apps.dashboard.views import StatsView
+from apps.integrations.aiva.views import ExchangeLogViewSet, IntegrationStatusView, OutboxViewSet
 from apps.memory.views import LongTermMemoryViewSet
 from apps.permissions.views import ApprovalViewSet, PermissionRuleViewSet
 
@@ -38,6 +39,8 @@ router.register("permissions/rules", PermissionRuleViewSet, basename="permission
 router.register("approvals", ApprovalViewSet, basename="approval")
 router.register("memories", LongTermMemoryViewSet, basename="memory")
 router.register("ai/runs", AIReplyLogViewSet, basename="ai-run")
+router.register("integrations/aiva/outbox", OutboxViewSet, basename="aiva-outbox")
+router.register("integrations/aiva/exchanges", ExchangeLogViewSet, basename="aiva-exchange")
 # Personal Zalo (isolated, flag-gated). Remove with apps/channels/providers/personal_unofficial.
 router.register("personal-channels", PersonalChannelViewSet, basename="personal-channel")
 
@@ -68,6 +71,13 @@ urlpatterns = [
     path("api/ai/resume/", ResumeView.as_view(), name="ai-resume"),
     path("api/ai/preview/", PreviewView.as_view(), name="ai-preview"),
     path("api/dashboard/stats/", StatsView.as_view(), name="dashboard-stats"),
+    # AIVA -> Zalo AI (service token + HMAC; 503 while AIVA_INTEGRATION_MODE=off)
+    path("api/integration/v1/", include("apps.integrations.aiva.urls")),
+    path(
+        "api/integrations/aiva/status/",
+        IntegrationStatusView.as_view(),
+        name="aiva-integration-status",
+    ),
     path("api/", include("apps.accounts.urls")),
     path("api/", include(router.urls)),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),

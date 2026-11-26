@@ -80,6 +80,27 @@ def _back_to_pending(item: ApprovalQueue, error: str = ""):
     item.refresh_from_db()
 
 
+def _outreach_conversation(item: ApprovalQueue):
+    from apps.conversations.models import Conversation
+
+    if item.conversation_id:
+        return item.conversation
+    contact = item.contact
+    conversation = (
+        Conversation.objects.filter(tenant=item.tenant, channel=contact.channel, contact=contact)
+        .exclude(status=Conversation.Status.ARCHIVED)
+        .first()
+    )
+    if conversation is None:
+        conversation = Conversation.objects.create(
+            tenant=item.tenant,
+            channel=contact.channel,
+            contact=contact,
+            data_origin=contact.data_origin,
+        )
+    return conversation
+
+
 def approve(
     item: ApprovalQueue, user, *, modified: str = "", reason: str = "", request=None
 ) -> ApprovalQueue:
@@ -90,7 +111,8 @@ def approve(
     auto-stop after a refused send) must survive a failed send. If the send fails, the item
     goes back to pending with ``send_error`` so it can be retried.
     Inbound-reply drafts go out at once (assist channels: to 'Chờ chủ gửi'). Outreach drafts
-    from AIVA only record the decision (sending is Phase 3.5).
+    from AIVA Sales AI go to the contact's channel too, but only while the contact still
+    consents and is not on a personal channel (re-checked here, at send time).
     """
     _expire_if_overdue(item)
     with transaction.atomic():
@@ -105,11 +127,15 @@ def approve(
         item.send_error = ""
         item.save()
 
-    if item.source == ApprovalQueue.Source.INBOUND_REPLY and item.conversation_id:
+    conversation = item.conversation
+    if item.source == ApprovalQueue.Source.AIVA_OUTREACH:
+        if item.contact is None or not item.contact.can_contact_proactively():
+            _back_to_pending(item)
+            raise ApprovalError("Khách chưa đồng ý nhận tin chủ động hoặc kênh không cho phép.")
+        conversation = _outreach_conversation(item)
+    if conversation is not None:
         try:
-            result = dispatch_reply(
-                item.conversation, text, reply_to=item.message, is_ai_generated=True
-            )
+            result = dispatch_reply(conversation, text, reply_to=item.message, is_ai_generated=True)
         except ReplyNotAllowed as exc:
             _back_to_pending(item)
             raise ApprovalError("Liên hệ này không được phép nhận tin.") from exc
@@ -129,7 +155,8 @@ def approve(
                 was_approved=True, approved_by=user, ai_confidence=item.ai_confidence
             )
             item.sent_message = result.message
-            item.save(update_fields=["sent_message", "updated_at"])
+        item.conversation = conversation
+        item.save(update_fields=["sent_message", "conversation", "updated_at"])
     log_action(
         f"approval.{item.status}",
         obj=item,
