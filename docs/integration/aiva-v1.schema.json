@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zalo-personal-ai/integration/aiva-v1.schema.json",
+  "title": "Zalo AI <-> AIVA integration envelope v1",
+  "description": "Envelope for every message exchanged with AIVA SALES & MARKETING SYSTEM (Kickoff section 2). Only summaries are sent, never full chat history.",
+  "type": "object",
+  "required": ["event_id", "event_type", "tenant_ref", "data_origin", "occurred_at", "schema_version", "payload"],
+  "additionalProperties": false,
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid"},
+    "event_type": {
+      "type": "string",
+      "enum": ["lead.inbound", "conversation.summary", "opportunity.suggested", "handoff.requested", "consent.changed", "profile.update_suggested"]
+    },
+    "tenant_ref": {"type": "string", "minLength": 1, "description": "Tenant.external_ref (tenant id on the CRS side)"},
+    "data_origin": {"type": "string", "enum": ["demo", "real"]},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "schema_version": {"const": "1.0"},
+    "payload": {"type": "object"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"event_type": {"const": "lead.inbound"}}},
+      "then": {"properties": {"payload": {"$ref": "#/$defs/lead_inbound"}}}
+    },
+    {
+      "if": {"properties": {"event_type": {"const": "conversation.summary"}}},
+      "then": {"properties": {"payload": {"$ref": "#/$defs/conversation_summary"}}}
+    },
+    {
+      "if": {"properties": {"event_type": {"const": "opportunity.suggested"}}},
+      "then": {"properties": {"payload": {"$ref": "#/$defs/opportunity_suggested"}}}
+    },
+    {
+      "if": {"properties": {"event_type": {"const": "handoff.requested"}}},
+      "then": {"properties": {"payload": {"$ref": "#/$defs/handoff_requested"}}}
+    },
+    {
+      "if": {"properties": {"event_type": {"const": "consent.changed"}}},
+      "then": {"properties": {"payload": {"$ref": "#/$defs/consent_changed"}}}
+    },
+    {
+      "if": {"properties": {"event_type": {"const": "profile.update_suggested"}}},
+      "then": {"properties": {"payload": {"$ref": "#/$defs/profile_update_suggested"}}}
+    }
+  ],
+  "$defs": {
+    "contact_ref": {
+      "type": "object",
+      "required": ["contact_ref"],
+      "properties": {
+        "contact_ref": {"type": "string", "description": "Zalo AI contact id"},
+        "crs_customer_id": {"type": "string"}
+      }
+    },
+    "lead_inbound": {
+      "allOf": [{"$ref": "#/$defs/contact_ref"}],
+      "type": "object",
+      "required": ["contact_ref", "display_name", "channel_type", "consent_status"],
+      "properties": {
+        "display_name": {"type": "string"},
+        "channel_type": {"enum": ["zalo_oa", "zalo_bot", "zalo_personal"]},
+        "consent_status": {"const": "granted"},
+        "segment": {"enum": ["b2b", "b2c", "unknown"]},
+        "first_message_summary": {"type": "string", "maxLength": 1000}
+      }
+    },
+    "conversation_summary": {
+      "type": "object",
+      "required": ["contact_ref", "conversation_ref", "summary"],
+      "properties": {
+        "contact_ref": {"type": "string"},
+        "crs_customer_id": {"type": "string"},
+        "conversation_ref": {"type": "string"},
+        "summary": {"type": "string", "maxLength": 4000},
+        "detected_needs": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "opportunity_suggested": {
+      "type": "object",
+      "required": ["contact_ref", "signals"],
+      "properties": {
+        "contact_ref": {"type": "string"},
+        "crs_customer_id": {"type": "string"},
+        "signals": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "handoff_requested": {
+      "type": "object",
+      "required": ["contact_ref", "reason"],
+      "properties": {
+        "contact_ref": {"type": "string"},
+        "crs_customer_id": {"type": "string"},
+        "owner_staff_ref": {"type": "string"},
+        "reason": {"enum": ["customer_asked_human", "ai_uncertain", "sensitive_topic"]}
+      }
+    },
+    "consent_changed": {
+      "type": "object",
+      "required": ["contact_ref", "consent_status"],
+      "properties": {
+        "contact_ref": {"type": "string"},
+        "crs_customer_id": {"type": "string"},
+        "consent_status": {"enum": ["unknown", "granted", "withdrawn"]},
+        "consent_source": {"type": "string"}
+      }
+    },
+    "profile_update_suggested": {
+      "type": "object",
+      "required": ["contact_ref", "suggested_changes"],
+      "properties": {
+        "contact_ref": {"type": "string"},
+        "crs_customer_id": {"type": "string"},
+        "suggested_changes": {"type": "object", "minProperties": 1}
+      }
+    }
+  }
+}
