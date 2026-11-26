@@ -1,0 +1,67 @@
+# Local development stack: Django + PostgreSQL 16 + Redis + Celery worker.
+# `docker compose up` works without a .env file (dev-only defaults below, no real secrets).
+x-app: &app
+  build: .
+  image: zalo-personal-ai:dev
+  environment:
+    DJANGO_SETTINGS_MODULE: config.settings.development
+    DATABASE_URL: postgres://zalo:zalo@db:5432/zalo_ai
+    REDIS_URL: redis://redis:6379/0
+    LLM_PROVIDER: mock
+    ZALO_CHANNEL_BACKEND: mock
+    ZALO_PERSONAL_UNOFFICIAL_ENABLED: "false"
+    AIVA_INTEGRATION_MODE: "off"
+  env_file:
+    - path: .env
+      required: false
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: zalo_ai
+      POSTGRES_USER: zalo
+      POSTGRES_PASSWORD: zalo  # local dev only
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zalo -d zalo_ai"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  web:
+    <<: *app
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py runserver 0.0.0.0:8000"
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz/')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  worker:
+    <<: *app
+    command: celery -A config worker --loglevel=info
+    depends_on:
+      web:
+        condition: service_healthy
+
+volumes:
+  pgdata:
