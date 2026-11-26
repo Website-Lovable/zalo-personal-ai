@@ -26,38 +26,48 @@ def _start_of_day(day: date):
 
 
 def overview(tenant, user=None) -> dict:
+    """Headline numbers. Polled by every open dashboard, so one aggregate query per table."""
     today = _start_of_day(timezone.localdate())
-    messages = Message.objects.for_tenant(tenant)
-    approvals = ApprovalQueue.objects.for_tenant(tenant).filter(status="pending")
-    channels = Channel.objects.for_tenant(tenant)
-    data = {
-        "channels": channels.count(),
-        "channels_active": channels.filter(is_active=True, status="active").count(),
-        "channels_restricted": channels.filter(status="restricted").count(),
-        "contacts": Contact.objects.for_tenant(tenant).count(),
-        "contacts_with_consent": Contact.objects.for_tenant(tenant)
-        .filter(consent_status="granted")
-        .count(),
-        "conversations": Conversation.objects.for_tenant(tenant).count(),
-        "conversations_taken_over": Conversation.objects.for_tenant(tenant)
-        .filter(human_takeover=True)
-        .count(),
-        "pending_approvals": approvals.count(),
-        "pending_escalations": approvals.filter(kind="escalation").count(),
-        "pending_owner_sends": PendingOwnerSend.objects.for_tenant(tenant)
-        .filter(status="pending")
-        .count(),
-        "messages_in_today": messages.filter(direction="inbound", created_at__gte=today).count(),
-        "messages_out_today": messages.filter(direction="outbound", created_at__gte=today).count(),
-        "ai_auto_sent_today": AIReplyLog.objects.for_tenant(tenant)
-        .filter(outcome="sent", created_at__gte=today)
-        .count(),
-        "emergency_stop": AIControl.for_tenant(tenant).emergency_stop,
-    }
     staff_ref = getattr(user, "staff_ref", "")
-    data["my_pending_approvals"] = (
-        approvals.filter(owner_staff_ref=staff_ref).count() if staff_ref else 0
+    data = Channel.objects.for_tenant(tenant).aggregate(
+        channels=Count("id"),
+        channels_active=Count("id", filter=Q(is_active=True, status="active")),
+        channels_restricted=Count("id", filter=Q(status="restricted")),
     )
+    data |= Contact.objects.for_tenant(tenant).aggregate(
+        contacts=Count("id"),
+        contacts_with_consent=Count("id", filter=Q(consent_status="granted")),
+    )
+    data |= Conversation.objects.for_tenant(tenant).aggregate(
+        conversations=Count("id"),
+        conversations_taken_over=Count("id", filter=Q(human_takeover=True)),
+    )
+    data |= (
+        ApprovalQueue.objects.for_tenant(tenant)
+        .filter(status="pending")
+        .aggregate(
+            pending_approvals=Count("id"),
+            pending_escalations=Count("id", filter=Q(kind="escalation")),
+            my_pending_approvals=Count(
+                "id", filter=Q(owner_staff_ref=staff_ref) & ~Q(owner_staff_ref="")
+            ),
+        )
+    )
+    data["pending_owner_sends"] = (
+        PendingOwnerSend.objects.for_tenant(tenant).filter(status="pending").count()
+    )
+    data |= (
+        Message.objects.for_tenant(tenant)
+        .filter(created_at__gte=today)
+        .aggregate(
+            messages_in_today=Count("id", filter=Q(direction="inbound")),
+            messages_out_today=Count("id", filter=Q(direction="outbound")),
+        )
+    )
+    data["ai_auto_sent_today"] = (
+        AIReplyLog.objects.for_tenant(tenant).filter(outcome="sent", created_at__gte=today).count()
+    )
+    data["emergency_stop"] = AIControl.for_tenant(tenant).emergency_stop
     return data
 
 

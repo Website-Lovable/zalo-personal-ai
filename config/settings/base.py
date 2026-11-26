@@ -89,10 +89,21 @@ WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
 DATABASES = {
-    "default": dj_database_url.parse(
-        env("DATABASE_URL", f"sqlite:///{BASE_DIR / 'db.sqlite3'}"), conn_max_age=60
-    )
+    "default": dj_database_url.parse(env("DATABASE_URL") or f"sqlite:///{BASE_DIR / 'db.sqlite3'}")
 }
+# PostgreSQL: a bounded connection pool per process (psycopg_pool). Under ASGI every request
+# may run on a different thread, so persistent per-thread connections (CONN_MAX_AGE) pile up
+# until PostgreSQL refuses clients; the Phase 5 load test hit exactly that. Size the pool so
+# (web processes + worker processes) * DB_POOL_MAX_SIZE stays below max_connections.
+if DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql" and env_bool("DB_POOL", True):
+    DATABASES["default"]["CONN_MAX_AGE"] = 0
+    DATABASES["default"].setdefault("OPTIONS", {})["pool"] = {
+        "min_size": int(env("DB_POOL_MIN_SIZE", "2")),
+        "max_size": int(env("DB_POOL_MAX_SIZE", "10")),
+        "timeout": float(env("DB_POOL_TIMEOUT_SECONDS", "10")),
+    }
+else:
+    DATABASES["default"]["CONN_MAX_AGE"] = int(env("DB_CONN_MAX_AGE", "60"))
 
 AUTH_USER_MODEL = "accounts.User"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -122,7 +133,19 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "common.pagination.DefaultPagination",
     "PAGE_SIZE": 50,
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # Scoped throttles on the public auth endpoints (Phase 5 security review, finding S1).
+    # Counters live in the cache: use Redis (CACHE_BACKEND=redis) once there are several
+    # processes, otherwise each process counts on its own.
+    "DEFAULT_THROTTLE_RATES": {
+        "auth_login": env("THROTTLE_AUTH_LOGIN", "10/min"),
+        "auth_register": env("THROTTLE_AUTH_REGISTER", "5/hour"),
+        "auth_refresh": env("THROTTLE_AUTH_REFRESH", "30/min"),
+    },
 }
+# Reverse proxies in front of the app that append to X-Forwarded-For (Caddy in production = 1).
+# 0 = ignore X-Forwarded-For entirely (direct exposure, local dev).
+TRUSTED_PROXY_COUNT = int(env("TRUSTED_PROXY_COUNT", "0"))
+REST_FRAMEWORK["NUM_PROXIES"] = TRUSTED_PROXY_COUNT or None
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=int(env("JWT_ACCESS_MINUTES", "30"))),
@@ -146,6 +169,18 @@ SPECTACULAR_SETTINGS = {
 
 # --- Celery / Redis / Channels ----------------------------------------------------
 REDIS_URL = env("REDIS_URL", "redis://localhost:6379/0")
+# Shared cache (throttle counters, ...). locmem is per process: fine for dev and tests only.
+CACHE_BACKEND = env("CACHE_BACKEND", "locmem")
+if CACHE_BACKEND == "redis":
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": env("CACHE_REDIS_URL", REDIS_URL),
+            "KEY_PREFIX": "zalo-ai",
+        }
+    }
+else:
+    CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
 CELERY_BROKER_URL = REDIS_URL
 CELERY_RESULT_BACKEND = REDIS_URL
 CELERY_TASK_ALWAYS_EAGER = env_bool("CELERY_TASK_ALWAYS_EAGER", False)
@@ -257,12 +292,54 @@ DEFAULT_AI_RESPONSE_DELAY_SECONDS = int(env("DEFAULT_AI_RESPONSE_DELAY_SECONDS",
 APPROVAL_EXPIRY_HOURS = int(env("APPROVAL_EXPIRY_HOURS", "24"))
 MAX_MEMORY_PER_CONTACT = int(env("MAX_MEMORY_PER_CONTACT", "100"))
 
+# --- Logging, error mails, monitoring (Phase 5) -------------------------------------------
+# LOG_FORMAT=json -> one JSON object per line (production); text otherwise.
+LOG_FORMAT = env("LOG_FORMAT", "text")
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "formatters": {
+        "json": {"()": "common.logging.JSONFormatter"},
+        "text": {"format": "%(asctime)s %(levelname)s %(name)s %(message)s"},
+    },
+    "filters": {"require_debug_false": {"()": "django.utils.log.RequireDebugFalse"}},
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "json" if LOG_FORMAT == "json" else "text",
+        },
+        # Unhandled errors (HTTP 500) are mailed to ADMINS when SMTP is configured.
+        "mail_admins": {
+            "class": "django.utils.log.AdminEmailHandler",
+            "level": "ERROR",
+            "filters": ["require_debug_false"],
+        },
+    },
     "root": {"handlers": ["console"], "level": env("LOG_LEVEL", "INFO")},
+    "loggers": {
+        "django.request": {"handlers": ["console", "mail_admins"], "level": "ERROR"},
+        "httpx": {"level": env("HTTPX_LOG_LEVEL", "WARNING")},
+    },
 }
+ADMINS = [("Ops", addr) for addr in env_list("ERROR_EMAIL_TO")]
+SERVER_EMAIL = env("SERVER_EMAIL", "zalo-ai@localhost")
+EMAIL_BACKEND = (
+    "django.core.mail.backends.smtp.EmailBackend"
+    if env("EMAIL_HOST")
+    else "django.core.mail.backends.console.EmailBackend"
+)
+EMAIL_HOST = env("EMAIL_HOST", "")
+EMAIL_PORT = int(env("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
+EMAIL_SUBJECT_PREFIX = "[Zalo AI] "
+# Bearer token Prometheus presents on /metrics/. Empty = endpoint disabled (404).
+METRICS_TOKEN = env("METRICS_TOKEN", "")
+# Django admin lives here; use a non-obvious path in production (e.g. "quan-tri-7f3a/").
+ADMIN_URL = env("ADMIN_URL", "admin/")
+if not ADMIN_URL.endswith("/") or ADMIN_URL.startswith("/"):
+    raise ImproperlyConfigured("ADMIN_URL must look like 'path/' (no leading slash)")
 
 # --- Zalo channels (Phase 2) ---------------------------------------------------------
 # mock = outbound calls go to the in-memory MockChannelProvider (dev/test default);
@@ -296,6 +373,7 @@ ZALO_BOT_POLL_TIMEOUT_SECONDS = int(env("ZALO_BOT_POLL_TIMEOUT_SECONDS", "10"))
 ZALO_BOT_POLL_INTERVAL_SECONDS = int(env("ZALO_BOT_POLL_INTERVAL_SECONDS", "15"))
 
 CELERY_BEAT_SCHEDULE = {
+    "heartbeat": {"task": "common.tasks.heartbeat", "schedule": 60.0},
     "ai-expire-approvals": {
         "task": "apps.ai_engine.tasks.expire_approvals",
         "schedule": 300.0,

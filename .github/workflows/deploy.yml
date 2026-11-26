@@ -1,0 +1,93 @@
+# Deploy one released image tag to the production server over SSH. Manual only, and the
+# "production" GitHub environment should require the owner's approval (Settings ->
+# Environments -> production -> Required reviewers). Nothing runs until these secrets exist:
+#   DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY, DEPLOY_KNOWN_HOSTS, DEPLOY_PATH
+# See docs/PHASE5_TESTING_DEPLOYMENT.md, section "Đưa lên production".
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag from Release images, e.g. sha-1a2b3c4 or v1.0.0"
+        required: true
+      profiles:
+        description: "Extra compose profiles, comma separated (monitoring, personal)"
+        required: false
+        default: "monitoring"
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      TAG: ${{ inputs.tag }}
+      PROFILES: ${{ inputs.profiles }}
+    steps:
+      - name: Check that the server has been configured
+        env:
+          HAS_KEY: ${{ secrets.DEPLOY_SSH_KEY != '' }}
+          HAS_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS != '' }}
+        run: |
+          missing=""
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_PATH; do [ -n "${!name}" ] || missing="$missing $name"; done
+          [ "$HAS_KEY" = "true" ] || missing="$missing DEPLOY_SSH_KEY"
+          [ "$HAS_KNOWN_HOSTS" = "true" ] || missing="$missing DEPLOY_KNOWN_HOSTS"
+          if [ -n "$missing" ]; then
+            echo "::error::Production server not configured yet; missing secrets:$missing"
+            exit 1
+          fi
+          [[ "$TAG" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::invalid tag"; exit 1; }
+          [[ "$PROFILES" =~ ^[a-z,]*$ ]] || { echo "::error::invalid profiles"; exit 1; }
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use the deployed version's compose file and scripts
+        run: |
+          if [[ "$TAG" == sha-* ]]; then git checkout --quiet "${TAG#sha-}"; else git checkout --quiet "refs/tags/$TAG"; fi
+          git log -1 --oneline
+
+      - name: SSH setup
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          echo "SSH=ssh -i $HOME/.ssh/id_deploy -o IdentitiesOnly=yes $DEPLOY_USER@$DEPLOY_HOST" >> "$GITHUB_ENV"
+
+      - name: Upload compose file and deploy scripts
+        # The server's own alertmanager.yml (with the real chat id) and secrets are kept.
+        run: |
+          tar czf - --exclude=deploy/monitoring/alertmanager.yml --exclude='deploy/monitoring/secrets/*' \
+            docker-compose.prod.yml deploy \
+            | $SSH "mkdir -p '$DEPLOY_PATH' && tar xzf - -C '$DEPLOY_PATH'"
+          $SSH "test -f '$DEPLOY_PATH/deploy/monitoring/alertmanager.yml'" \
+            || tar czf - deploy/monitoring/alertmanager.yml | $SSH "tar xzf - -C '$DEPLOY_PATH'"
+
+      - name: Registry login on the server (job-scoped token)
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: printf '%s' "$TOKEN" | $SSH "docker login ghcr.io -u '$ACTOR' --password-stdin"
+
+      - name: Deploy
+        run: $SSH "cd '$DEPLOY_PATH' && COMPOSE_PROFILES='$PROFILES' deploy/scripts/deploy.sh '$TAG'"
+
+      - name: Registry logout
+        if: always()
+        run: $SSH "docker logout ghcr.io" || true

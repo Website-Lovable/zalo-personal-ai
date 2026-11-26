@@ -14,6 +14,16 @@ def _reset_mock_provider():
 
 
 @pytest.fixture(autouse=True)
+def _clear_cache():
+    """Throttle counters live in the cache; never let one test's logins throttle another."""
+    from django.core.cache import cache
+
+    cache.clear()
+    yield
+    cache.clear()
+
+
+@pytest.fixture(autouse=True)
 def _no_network(monkeypatch):
     """Acceptance criterion 4: tests must never open a socket to the outside world."""
     import socket
