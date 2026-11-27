@@ -68,6 +68,7 @@ urlpatterns = [
     path("healthz/", healthz, name="healthz"),
     path("readyz/", observability.readyz, name="readyz"),
     path("metrics/", observability.metrics, name="metrics"),
+    path("api/ops/snapshots/", observability.ops_snapshots, name="ops-snapshots"),
     path(settings.ADMIN_URL, admin.site.urls),
     # Called by Zalo (public; authenticity is checked per request)
     path("webhooks/zalo-oa/", ZaloOAWebhookView.as_view(), name="webhook-zalo-oa"),

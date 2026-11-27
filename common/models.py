@@ -69,3 +69,23 @@ class AuditLog(models.Model):
 
     def __str__(self):
         return f"{self.timestamp:%Y-%m-%d %H:%M} {self.action} {self.model_name}#{self.object_id}"
+
+
+class OpsDailySnapshot(models.Model):
+    """Measured daily operating figures, platform-wide (``common.ops_report``).
+
+    Counts only: no tenant names, no customer data, no message content. Recomputed every hour
+    for today and yesterday, so the latest row is always current and yesterday ends final.
+    """
+
+    date = models.DateField(unique=True)
+    data = models.JSONField(default=dict)
+    computed_at = models.DateTimeField()
+    pushed_at = models.DateTimeField(null=True, blank=True)
+    push_error = models.CharField(max_length=500, blank=True)
+
+    class Meta:
+        ordering = ["-date"]
+
+    def __str__(self):
+        return f"OpsDailySnapshot({self.date})"

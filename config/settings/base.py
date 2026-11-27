@@ -341,6 +341,12 @@ EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
 EMAIL_SUBJECT_PREFIX = "[Zalo AI] "
 # Bearer token Prometheus presents on /metrics/. Empty = endpoint disabled (404).
 METRICS_TOKEN = env("METRICS_TOKEN", "")
+# Measured daily operating figures (common.ops_report): pulled at /api/ops/snapshots/ with
+# METRICS_TOKEN, and pushed hourly to OPS_PUSH_URL (HMAC with OPS_PUSH_SECRET) when set.
+OPS_PUSH_URL = env("OPS_PUSH_URL", "")
+OPS_PUSH_SECRET = env("OPS_PUSH_SECRET", "")
+if OPS_PUSH_URL and (not OPS_PUSH_URL.startswith("https://") or len(OPS_PUSH_SECRET) < 32):
+    raise ImproperlyConfigured("OPS_PUSH_URL needs https and OPS_PUSH_SECRET of 32+ characters")
 # Django admin lives here; use a non-obvious path in production (e.g. "quan-tri-7f3a/").
 ADMIN_URL = env("ADMIN_URL", "admin/")
 if not ADMIN_URL.endswith("/") or ADMIN_URL.startswith("/"):
@@ -379,6 +385,7 @@ ZALO_BOT_POLL_INTERVAL_SECONDS = int(env("ZALO_BOT_POLL_INTERVAL_SECONDS", "15")
 
 CELERY_BEAT_SCHEDULE = {
     "heartbeat": {"task": "common.tasks.heartbeat", "schedule": 60.0},
+    "ops-daily-snapshots": {"task": "common.tasks.compute_ops_snapshots", "schedule": 3600.0},
     "ai-expire-approvals": {
         "task": "apps.ai_engine.tasks.expire_approvals",
         "schedule": 300.0,
