@@ -6,7 +6,9 @@ event is only ever sent for data that was really saved.
 Guards (Kickoff 2.1 / 2.4):
 - mode off  -> nothing is enqueued, nothing leaves the app;
 - sandbox   -> only data_origin=demo; live -> only data_origin=real;
-- contacts of a zalo_personal channel without consent are never shared with AIVA.
+- contacts of a zalo_personal channel without consent are never shared with AIVA;
+- live (Phase 6): the tenant must be activated for live (``live.can_enqueue``) and a contact
+  must have a documented consent (status + source + time), except for ``consent.changed``.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from typing import Any
 
 from django.db import transaction
 
-from . import config
+from . import config, live
 from .models import IntegrationAuditLog, IntegrationOutbox
 from .schema import build_envelope
 
@@ -59,6 +61,18 @@ def enqueue_event(
         return None
     if contact is not None and contact.channel.is_personal and not contact.has_consent:
         _blocked(tenant, event_type, data_origin, "zalo_personal contact without consent")
+        return None
+    allowed, reason = live.can_enqueue(tenant)
+    if not allowed:
+        _blocked(tenant, event_type, data_origin, reason)
+        return None
+    if (
+        contact is not None
+        and config.get_mode() == config.LIVE
+        and event_type != "consent.changed"
+        and not contact.has_documented_consent
+    ):
+        _blocked(tenant, event_type, data_origin, "contact consent not documented")
         return None
     if not tenant.external_ref:
         _blocked(tenant, event_type, data_origin, "tenant has no external_ref")

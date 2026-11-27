@@ -1,8 +1,9 @@
 """Producers of Zalo AI -> AIVA events (Kickoff 2.3), wired to model signals in ``apps.py``.
 
 Rules applied here, on top of the outbox guards (mode, data_origin, tenant_ref):
-- only contacts that consented are shared (Kickoff 2.1); ``consent.changed`` is sent by the
-  contact API itself and is the one event about a contact without consent;
+- only contacts with a documented consent (status + source + time) are shared (Kickoff
+  2.1); ``consent.changed`` is sent by the contact API itself and is the one event about a
+  contact without consent;
 - only summaries, intents and memory facts are sent, never message history;
 - each fact is sent once (idempotency keys), summaries at most once per interval;
 - a failure here never breaks the caller: work runs in a savepoint and errors are logged.
@@ -63,7 +64,7 @@ def _contact_payload(contact) -> dict:
 
 
 def _shareable(contact) -> bool:
-    return contact is not None and contact.has_consent
+    return contact is not None and contact.has_documented_consent
 
 
 @_safe

@@ -3,8 +3,11 @@
 - Each row is locked (``SELECT ... FOR UPDATE SKIP LOCKED``) while it is sent, so two
   workers never send the same event twice; AIVA also dedupes on ``event_id``.
 - Mode is checked again at send time: switching to ``off`` freezes the queue (rows stay
-  pending), and a row whose ``data_origin`` is not allowed in the current mode is dead-lettered
-  without being sent (sandbox never carries real data).
+  pending). A row whose ``data_origin`` is not allowed in the current mode is never sent and
+  stays frozen (sandbox never carries real data, live never carries demo data). Phase 6:
+  frozen instead of dead-lettered, so a rollback from live to sandbox loses no real event.
+- Live (Phase 6): only rows of tenants whose live enrollment is ``active`` are due, and
+  nothing is due while the platform switch is paused (rollback levels 1 and 2).
 - Every attempt is written to ``IntegrationAuditLog``.
 """
 
@@ -20,7 +23,7 @@ from django.utils import timezone
 
 from common.exceptions import FeatureDisabledError
 
-from . import config
+from . import config, live
 from .client import AIVAClient, SendResult, get_aiva_client
 from .models import IntegrationAuditLog, IntegrationOutbox
 
@@ -34,9 +37,16 @@ def backoff_seconds(attempts: int) -> int:
 
 
 def _due(now) -> Q:
-    return Q(status__in=[Status.PENDING, Status.FAILED]) & (
-        Q(next_attempt_at__isnull=True) | Q(next_attempt_at__lte=now)
+    due = (
+        Q(status__in=[Status.PENDING, Status.FAILED])
+        & (Q(next_attempt_at__isnull=True) | Q(next_attempt_at__lte=now))
+        & Q(data_origin__in=sorted(config.allowed_data_origins()))
     )
+    if config.get_mode() == config.LIVE:
+        if live.is_globally_paused():
+            return Q(pk__in=[])
+        due &= Q(tenant_id__in=live.active_tenant_ids())
+    return due
 
 
 def _audit(item: IntegrationOutbox, *, success: bool, result: SendResult | None, detail: str):
@@ -54,15 +64,6 @@ def _audit(item: IntegrationOutbox, *, success: bool, result: SendResult | None,
 
 
 def _send_locked(item: IntegrationOutbox, client: AIVAClient, now) -> str:
-    if item.data_origin not in config.allowed_data_origins():
-        item.status = Status.DEAD
-        item.last_error = (
-            f"blocked: data_origin {item.data_origin} not allowed in {config.get_mode()}"
-        )
-        item.save(update_fields=["status", "last_error", "updated_at"])
-        _audit(item, success=False, result=None, detail=item.last_error)
-        return item.status
-
     item.attempts += 1
     try:
         result = client.send_event(item.payload)
@@ -111,6 +112,7 @@ def deliver_one(item_id: int, *, client: AIVAClient | None = None) -> str | None
 def deliver_due(*, limit: int | None = None, client: AIVAClient | None = None) -> dict[str, int]:
     """Deliver every due row (oldest first). Used by the periodic beat task."""
     counts = {"sent": 0, "failed": 0, "dead": 0}
+    live.record_mode()
     if not config.is_enabled():
         return counts
     client = client or _client()

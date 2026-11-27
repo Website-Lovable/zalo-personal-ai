@@ -689,10 +689,41 @@
     });
   }
 
+  // Phase 6: real-data (live) enrollment of this tenant — review, owner acknowledgement, stop.
+  function liveCard(lv) {
+    const en = lv.enrollment;
+    const stText = { acknowledged: "Chủ tài khoản đã xác nhận — chờ vận hành kích hoạt", active: "Đang trao đổi dữ liệu thật", paused: "Tạm dừng", revoked: "Đã thu hồi xác nhận" };
+    const liveAction = async (op, body) => { try { await api(`/api/integrations/aiva/live/${op}/`, { method: "POST", body }); toast("Đã cập nhật."); viewSettingsAIVA(); } catch (e) { toast(e.message, "error"); } };
+    const levelChip = { ok: ["Đạt", "ok"], warn: ["Chú ý", "warn"], fail: ["Chưa đạt", "danger"] };
+    const checks = lv.review.checks.map((c) => h("li", { class: "check-item" }, chip(levelChip[c.level][0], levelChip[c.level][1]), h("span", { class: "small", text: c.message + (c.count != null ? ` (${c.count})` : "") })));
+    const parts = [h("h2", { text: "Kết nối dữ liệu thật (live)" }),
+      h("div", { class: "banner " + (lv.live_exchange ? "danger" : "info") }, lv.live_exchange ? "Đang trao đổi dữ liệu khách thật với AIVA/CRS." : "Chưa trao đổi dữ liệu thật."),
+      h("dl", { class: "kv" },
+        h("dt", { text: "Trạng thái" }), h("dd", { text: en ? stText[en.status] : "Chưa đăng ký" }),
+        h("dt", { text: "Văn bản GĐ duyệt" }), h("dd", { text: (en && en.approval_ref) || "—" }),
+        h("dt", { text: "Dừng toàn hệ thống" }), h("dd", { text: lv.global_paused ? "Đang dừng" : "Không" }),
+        en && en.pause_reason ? h("dt", { text: "Lý do dừng" }) : null, en && en.pause_reason ? h("dd", { text: en.pause_reason }) : null)];
+    if (can("owner") && (!en || en.status === "revoked")) {
+      const box = h("input", { type: "checkbox", id: "live-ack" });
+      parts.push(h("p", { class: "small", text: lv.acknowledgement_text }),
+        h("label", { class: "check-item ack", for: "live-ack" }, box, h("span", { text: "Tôi đã đọc và đồng ý" })),
+        h("button", { class: "btn primary block", text: "Xác nhận đồng ý", onclick: () => { if (!box.checked) return toast("Hãy đánh dấu đã đọc.", "error"); liveAction("acknowledge", { confirm: true }); } }));
+    }
+    if (en && en.status === "active") {
+      parts.push(h("button", { class: "btn danger block", text: "Tạm dừng kết nối live", onclick: () => { const reason = prompt("Lý do tạm dừng?"); if (reason) liveAction("pause", { reason }); } }));
+    }
+    if (can("owner") && en && en.status !== "revoked") {
+      parts.push(h("button", { class: "btn ghost block", text: "Thu hồi xác nhận (xóa sự kiện chưa gửi)", onclick: () => { if (confirm("Thu hồi xác nhận? Sự kiện thật chưa gửi sẽ bị hủy.")) liveAction("revoke", { reason: "Chủ tài khoản thu hồi trong app" }); } }));
+    }
+    parts.push(h("h3", { text: "Rà soát trước khi live " + (lv.review.passed ? "— đạt" : "— chưa đạt") }), h("ul", { class: "stack plain" }, checks),
+      h("p", { class: "muted small", text: "Kích hoạt và mở lại sau khi dừng do bộ phận vận hành thực hiện sau khi rà soát đạt và có văn bản Giám đốc phê duyệt." }));
+    return h("div", { class: "card" }, ...parts);
+  }
+
   async function viewSettingsAIVA() {
     current = { live: (ev) => { if (ev.type === "aiva.outbox_dead") viewSettingsAIVA(); } };
     await page("Tích hợp AIVA", async () => {
-      const [st, outbox, logs] = await Promise.all([api("/api/integrations/aiva/status/"), api("/api/integrations/aiva/outbox/?page_size=20"), api("/api/integrations/aiva/exchanges/?page_size=20")]);
+      const [st, outbox, logs, lv] = await Promise.all([api("/api/integrations/aiva/status/"), api("/api/integrations/aiva/outbox/?page_size=20"), api("/api/integrations/aiva/exchanges/?page_size=20"), can("admin") ? api("/api/integrations/aiva/live/") : Promise.resolve(null)]);
       const modeText = { off: "Tắt — không trao đổi dữ liệu", sandbox: "Sandbox — chỉ dữ liệu demo", live: "Live — dữ liệu thật" }[st.mode];
       const rows = outbox.results.map((o) => h("tr", {},
         h("td", { text: o.event_type }), h("td", {}, chip(label("outbox", o.status), { sent: "ok", dead: "danger", failed: "warn" }[o.status] || "")),
@@ -709,6 +740,7 @@
           h("dt", { text: "Kênh gửi" }), h("dd", { text: st.client === "mock" ? "Giả lập (chưa có AIVA)" : "HTTP ký HMAC" }),
           h("dt", { text: "Live đã duyệt" }), h("dd", { text: st.live_approved ? "Có" : "Chưa" })),
           h("div", { class: "row field" }, Object.entries(st.outbox).map(([k, v]) => chip(label("outbox", k) + ": " + v, k === "dead" && v ? "danger" : "")))),
+        lv ? liveCard(lv) : null,
         h("div", { class: "card" }, h("h2", { text: "Sự kiện gửi AIVA gần đây" }), rows.length ? h("div", { class: "table-wrap" }, h("table", { class: "simple" }, h("thead", {}, h("tr", {}, ["Sự kiện", "Trạng thái", "Lần thử", "Lúc", ""].map((t) => h("th", { text: t })))), h("tbody", {}, rows))) : empty("Chưa có sự kiện.")),
         h("div", { class: "card" }, h("h2", { text: "Nhật ký trao đổi" }), logRows.length ? h("div", { class: "table-wrap" }, h("table", { class: "simple" }, h("thead", {}, h("tr", {}, ["Chiều", "Loại", "Kết quả", "Chi tiết", "Lúc"].map((t) => h("th", { text: t })))), h("tbody", {}, logRows))) : empty("Chưa có trao đổi.")),
         h("p", { class: "muted small", text: "Bật/tắt chế độ tích hợp bằng biến môi trường AIVA_INTEGRATION_MODE trên máy chủ. Chế độ live cần Giám đốc phê duyệt riêng." }));

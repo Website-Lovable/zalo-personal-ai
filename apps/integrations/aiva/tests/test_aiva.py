@@ -200,8 +200,11 @@ def test_outbox_sandbox_accepts_only_demo(tenant_a):
 
 
 @pytest.mark.django_db
-@override_settings(AIVA_INTEGRATION_MODE="live")
+@override_settings(AIVA_INTEGRATION_MODE="live", AIVA_LIVE_APPROVED=True)
 def test_outbox_live_accepts_only_real(tenant_a):
+    from apps.integrations.aiva.models import AIVALiveEnrollment
+
+    AIVALiveEnrollment.objects.create(tenant=tenant_a, status="active")  # Phase 6 gate
     assert config.allowed_data_origins() == {"real"}
     assert enqueue_event(tenant_a, "consent.changed", PAYLOAD, data_origin="demo") is None
     assert enqueue_event(tenant_a, "consent.changed", PAYLOAD, data_origin="real") is not None

@@ -12,7 +12,7 @@ Tài liệu này dành cho đội AIVA (CRS, Marketing AI, Sales AI). Mọi trao
 |---|---|
 | `off` (mặc định) | Không gửi gì ra ngoài; các endpoint `/api/integration/v1/*` trả `503`. Sự kiện không được xếp hàng. |
 | `sandbox` | Chỉ dữ liệu `data_origin=demo` đi theo cả hai chiều. Bản ghi thật bị chặn và ghi nhật ký. |
-| `live` | Chỉ dữ liệu `real`. Ứng dụng **không khởi động** nếu thiếu `AIVA_LIVE_APPROVED=true` (cần GĐ duyệt, Phase 6). |
+| `live` | Chỉ dữ liệu `real`. Ứng dụng **không khởi động** nếu thiếu `AIVA_LIVE_APPROVED=true` (cần GĐ duyệt, Phase 6). Thêm: tenant phải ở trạng thái `active` (chủ tài khoản xác nhận + vận hành kích hoạt); nếu không, mọi lời gọi AIVA → Zalo AI của tenant đó trả **503** và sự kiện không được gửi. Xem `docs/PHASE6_AIVA_LIVE.md`. |
 
 ## 2. AIVA → Zalo AI (REST)
 

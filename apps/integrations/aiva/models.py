@@ -84,3 +84,58 @@ class IntegrationInboundRequest(models.Model):
 
     def __str__(self):
         return f"{self.endpoint} {self.idempotency_key}"
+
+
+class AIVALiveSwitch(models.Model):
+    """Platform-wide runtime switch for live exchange with AIVA (Phase 6), one row (pk=1).
+
+    ``paused`` stops every live exchange at once without a redeploy (rollback level 2).
+    ``last_seen_mode`` lets us write an audit entry whenever AIVA_INTEGRATION_MODE changes.
+    """
+
+    paused = models.BooleanField(default=False)
+    reason = models.TextField(blank=True)
+    changed_by = models.CharField(max_length=150, blank=True)
+    changed_at = models.DateTimeField(null=True, blank=True)
+    last_seen_mode = models.CharField(max_length=10, blank=True)
+
+    def __str__(self):
+        return f"AIVALiveSwitch(paused={self.paused})"
+
+
+class AIVALiveEnrollment(models.Model):
+    """Per-tenant permission to exchange REAL data with AIVA (Phase 6).
+
+    Two people sign off: the tenant owner acknowledges in the app (``acknowledged``), then
+    the platform operator activates after a passing preflight, quoting the director's
+    written approval (``active``). Either side can stop it again: ``paused`` keeps the queue
+    frozen for a later resume, ``revoked`` withdraws the owner's acknowledgement and drops
+    events not yet sent.
+    """
+
+    class Status(models.TextChoices):
+        ACKNOWLEDGED = "acknowledged", "Chủ tài khoản đã xác nhận"
+        ACTIVE = "active", "Đang kết nối dữ liệu thật"
+        PAUSED = "paused", "Tạm dừng"
+        REVOKED = "revoked", "Đã thu hồi"
+
+    tenant = models.OneToOneField(
+        "accounts.Tenant", on_delete=models.CASCADE, related_name="aiva_live_enrollment"
+    )
+    status = models.CharField(max_length=15, choices=Status.choices, db_index=True)
+    acknowledged_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    acknowledgement_version = models.CharField(max_length=10, blank=True)
+    acknowledgement_text = models.TextField(blank=True)
+    approval_ref = models.CharField(max_length=255, blank=True)
+    activated_by = models.CharField(max_length=150, blank=True)
+    activated_at = models.DateTimeField(null=True, blank=True)
+    paused_at = models.DateTimeField(null=True, blank=True)
+    paused_by = models.CharField(max_length=150, blank=True)
+    pause_reason = models.TextField(blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"AIVALiveEnrollment({self.tenant_id}, {self.status})"
