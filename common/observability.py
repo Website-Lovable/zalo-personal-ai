@@ -244,10 +244,33 @@ def collect_metrics() -> str:
 @never_cache
 @require_GET
 def metrics(request):
+    denied = _metrics_auth(request)
+    if denied is not None:
+        return denied
+    return HttpResponse(collect_metrics(), content_type="text/plain; version=0.0.4")
+
+
+def _metrics_auth(request):
     token = settings.METRICS_TOKEN
     if not token:
         raise Http404
     supplied = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
     if not hmac.compare_digest(supplied.encode(), token.encode()):
         return HttpResponse(status=401, headers={"WWW-Authenticate": "Bearer"})
-    return HttpResponse(collect_metrics(), content_type="text/plain; version=0.0.4")
+    return None
+
+
+@never_cache
+@require_GET
+def ops_snapshots(request):
+    """Measured daily figures (``common.ops_report``), same token as /metrics/."""
+    from .ops_report import recent
+
+    denied = _metrics_auth(request)
+    if denied is not None:
+        return denied
+    try:
+        days = int(request.GET.get("days", "30"))
+    except ValueError:
+        days = 30
+    return JsonResponse({"snapshots": recent(days)})
